@@ -1,0 +1,27 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "uichat-mira-relay",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-08-09",
+  "workers_dev": true,
+  "routes": [
+    {
+      "pattern": "relay.tomz.io",
+      "custom_domain": true
+    }
+  ],
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "RELAY_ROOMS",
+        "class_name": "RelayRoom"
+      }
+    ]
+  },
+  "exports": {
+    "RelayRoom": {
+      "type": "durable-object",
+      "storage": "sqlite"
+    }
+  }
+}
