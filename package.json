@@ -1,0 +1,16 @@
+{
+  "name": "@ui-chat-mira/remote-relay",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Transport-only public relay for Mira Remote Host V1.",
+  "scripts": {
+    "dev": "wrangler dev",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "deploy": "wrangler deploy"
+  },
+  "devDependencies": {
+    "typescript": "7.0.2",
+    "wrangler": "4.114.0"
+  }
+}
