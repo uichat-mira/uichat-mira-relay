@@ -9,9 +9,14 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: relay-production-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   verify-and-deploy:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     env:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
@@ -34,6 +39,22 @@ jobs:
         if: github.event_name != 'pull_request' && env.CLOUDFLARE_API_TOKEN != '' && env.CLOUDFLARE_ACCOUNT_ID != ''
         run: npm run deploy
 
+      - name: Verify production health
+        if: github.event_name != 'pull_request' && env.CLOUDFLARE_API_TOKEN != '' && env.CLOUDFLARE_ACCOUNT_ID != ''
+        run: |
+          curl             --fail             --silent             --show-error             --retry 10             --retry-delay 2             --retry-all-errors             --max-time 15             https://relay.tomz.io/health             --output /tmp/relay-health.json
+
+          cat /tmp/relay-health.json
+
+          node -e '
+            const fs = require("fs");
+            const body = JSON.parse(fs.readFileSync("/tmp/relay-health.json", "utf8"));
+            if (body.ok !== true || body.service !== "mira-remote-relay" || body.protocolVersion !== 1) {
+              console.error("Unexpected Relay health response:", body);
+              process.exit(1);
+            }
+          '
+
       - name: Cloudflare credentials not configured
         if: github.event_name != 'pull_request' && (env.CLOUDFLARE_API_TOKEN == '' || env.CLOUDFLARE_ACCOUNT_ID == '')
-        run: echo "Cloudflare deploy skipped because CLOUDFLARE_API_TOKEN or CLOUDFLARE_ACCOUNT_ID is not configured for this repository."
+        run: echo "::warning::Cloudflare deploy skipped because CLOUDFLARE_API_TOKEN or CLOUDFLARE_ACCOUNT_ID is not configured for this repository."
