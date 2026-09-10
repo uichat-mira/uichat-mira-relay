@@ -2,19 +2,49 @@ name: Relay CI / Deploy
 
 on:
   push:
-    branches: [main]
+    branches:
+      - 'feat/**'
+      - dev
+      - test
+      - prod
   pull_request:
+    branches:
+      - dev
+      - test
+      - prod
   workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: relay-production-${{ github.ref }}
+  group: relay-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
-  verify-and-deploy:
+  verify:
+    name: Verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install
+        run: npm install --no-audit --no-fund
+
+      - name: Typecheck
+        run: npm run typecheck
+
+  deploy:
+    name: Deploy ${{ github.ref_name }}
+    needs: verify
+    if: github.event_name != 'pull_request' && contains(fromJSON('["dev","test","prod"]'), github.ref_name)
     runs-on: ubuntu-latest
     timeout-minutes: 10
     env:
@@ -32,16 +62,69 @@ jobs:
       - name: Install
         run: npm install --no-audit --no-fund
 
-      - name: Typecheck
-        run: npm run typecheck
+      - name: Validate Cloudflare credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${CLOUDFLARE_API_TOKEN:-}"
+          test -n "${CLOUDFLARE_ACCOUNT_ID:-}"
+
+      - name: Prepare environment config
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          case "${GITHUB_REF_NAME}" in
+            dev)
+              worker_name="uichat-mira-relay-dev"
+              ;;
+            test)
+              worker_name="uichat-mira-relay-test"
+              ;;
+            prod)
+              worker_name="uichat-mira-relay"
+              ;;
+            *)
+              echo "Unsupported deploy branch: ${GITHUB_REF_NAME}" >&2
+              exit 1
+              ;;
+          esac
+
+          if [ "${GITHUB_REF_NAME}" = "prod" ]; then
+            echo "WRANGLER_CONFIG=wrangler.jsonc" >> "$GITHUB_ENV"
+            echo "WORKER_NAME=${worker_name}" >> "$GITHUB_ENV"
+            exit 0
+          fi
+
+          WORKER_NAME="${worker_name}" node <<'NODE'
+          const fs = require('node:fs');
+
+          const source = JSON.parse(fs.readFileSync('wrangler.jsonc', 'utf8'));
+          source.name = process.env.WORKER_NAME;
+          source.workers_dev = true;
+          source.routes = [];
+
+          fs.writeFileSync(
+            'wrangler.environment.jsonc',
+            JSON.stringify(source, null, 2) + '\n',
+          );
+          NODE
+
+          echo "WRANGLER_CONFIG=wrangler.environment.jsonc" >> "$GITHUB_ENV"
+          echo "WORKER_NAME=${worker_name}" >> "$GITHUB_ENV"
 
       - name: Deploy to Cloudflare
-        if: github.event_name != 'pull_request' && env.CLOUDFLARE_API_TOKEN != '' && env.CLOUDFLARE_ACCOUNT_ID != ''
-        run: npm run deploy
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx wrangler deploy -c "$WRANGLER_CONFIG"
 
       - name: Verify production health
-        if: github.event_name != 'pull_request' && env.CLOUDFLARE_API_TOKEN != '' && env.CLOUDFLARE_ACCOUNT_ID != ''
+        if: github.ref_name == 'prod'
+        shell: bash
         run: |
+          set -euo pipefail
+
           curl             --fail             --silent             --show-error             --retry 10             --retry-delay 2             --retry-all-errors             --max-time 15             https://relay.tomz.io/health             --output /tmp/relay-health.json
 
           cat /tmp/relay-health.json
@@ -55,6 +138,6 @@ jobs:
             }
           '
 
-      - name: Cloudflare credentials not configured
-        if: github.event_name != 'pull_request' && (env.CLOUDFLARE_API_TOKEN == '' || env.CLOUDFLARE_ACCOUNT_ID == '')
-        run: echo "::warning::Cloudflare deploy skipped because CLOUDFLARE_API_TOKEN or CLOUDFLARE_ACCOUNT_ID is not configured for this repository."
+      - name: Show deployed versions
+        shell: bash
+        run: npx wrangler deployments list -c "$WRANGLER_CONFIG"
