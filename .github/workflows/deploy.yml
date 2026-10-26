@@ -38,8 +38,8 @@ jobs:
       - name: Install
         run: npm install --no-audit --no-fund
 
-      - name: Typecheck
-        run: npm run typecheck
+      - name: Typecheck and Workers tests
+        run: npm run check
 
   deploy:
     name: Deploy ${{ github.ref_name }}

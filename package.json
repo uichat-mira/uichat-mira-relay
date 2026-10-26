@@ -7,10 +7,15 @@
   "scripts": {
     "dev": "wrangler dev",
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "deploy": "wrangler deploy"
+    "deploy": "wrangler deploy",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "check": "npm run typecheck && npm run test"
   },
   "devDependencies": {
     "typescript": "7.0.2",
-    "wrangler": "4.114.0"
+    "wrangler": "4.114.0",
+    "@cloudflare/vitest-plugin": "^1.4.0",
+    "vitest": "^4.1.0"
   }
 }

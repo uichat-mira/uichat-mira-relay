@@ -1,13 +1,19 @@
 import { DurableObject } from "cloudflare:workers";
+import {
+  PROTOCOL_VERSION,
+  RELAY_ID_PATTERN,
+  isRecord,
+  parseRelayId,
+  isWebSocketUpgrade,
+  parseFrame,
+  normalizeToken,
+  requestIdFrom,
+  internalRequestId,
+  parseInternalRequestId,
+  type RelayFrame,
+} from "./protocol.js";
 
-const PROTOCOL_VERSION = 1;
-const MAX_FRAME_CHARS = 2 * 1024 * 1024;
 const MAX_ACTIVE_REQUESTS_PER_CLIENT = 32;
-const RELAY_ID_PATTERN = /^[A-Za-z0-9_-]{16,128}$/u;
-const REQUEST_ID_PATTERN = /^[A-Za-z0-9._:-]{1,160}$/u;
-const TOKEN_MIN_LENGTH = 32;
-const TOKEN_MAX_LENGTH = 512;
-
 type RelayRole = "host" | "client";
 
 type RelayAttachment = {
@@ -17,11 +23,6 @@ type RelayAttachment = {
   role?: RelayRole;
   activeRequestIds: string[];
   replaced?: boolean;
-};
-
-type RelayFrame = Record<string, unknown> & {
-  version: number;
-  type: string;
 };
 
 type Env = {
@@ -36,49 +37,6 @@ const json = (value: unknown, status = 200) =>
       "cache-control": "no-store",
     },
   });
-
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  typeof value === "object" && value !== null && !Array.isArray(value);
-
-const parseRelayId = (pathname: string) => {
-  const matched = pathname.match(
-    /^\/v1\/relay\/([A-Za-z0-9_-]{16,128})\/socket$/u,
-  );
-  return matched?.[1] ?? null;
-};
-
-const isWebSocketUpgrade = (request: Request) =>
-  request.headers.get("Upgrade")?.toLowerCase() === "websocket";
-
-const parseFrame = (message: string): RelayFrame | null => {
-  if (message.length > MAX_FRAME_CHARS) return null;
-
-  try {
-    const parsed = JSON.parse(message) as unknown;
-    if (
-      !isRecord(parsed) ||
-      parsed.version !== PROTOCOL_VERSION ||
-      typeof parsed.type !== "string"
-    ) {
-      return null;
-    }
-    return parsed as RelayFrame;
-  } catch {
-    return null;
-  }
-};
-
-const normalizeToken = (value: unknown) => {
-  if (typeof value !== "string") return null;
-  const normalized = value.trim();
-  if (
-    normalized.length < TOKEN_MIN_LENGTH ||
-    normalized.length > TOKEN_MAX_LENGTH
-  ) {
-    return null;
-  }
-  return normalized;
-};
 
 const sha256Hex = async (value: string) => {
   const digest = await crypto.subtle.digest(
@@ -130,25 +88,6 @@ const safeSend = (socket: WebSocket, frame: Record<string, unknown>) => {
   } catch {
     return false;
   }
-};
-
-const requestIdFrom = (frame: RelayFrame) =>
-  typeof frame.requestId === "string" && REQUEST_ID_PATTERN.test(frame.requestId)
-    ? frame.requestId
-    : null;
-
-const internalRequestId = (connectionId: string, requestId: string) =>
-  `${connectionId}~${requestId}`;
-
-const parseInternalRequestId = (value: unknown) => {
-  if (typeof value !== "string") return null;
-  const separator = value.indexOf("~");
-  if (separator <= 0 || separator === value.length - 1) return null;
-
-  const connectionId = value.slice(0, separator);
-  const requestId = value.slice(separator + 1);
-  if (!REQUEST_ID_PATTERN.test(requestId)) return null;
-  return { connectionId, requestId };
 };
 
 export class RelayRoom extends DurableObject<Env> {

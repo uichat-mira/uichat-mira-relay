@@ -63,9 +63,11 @@ The room persists only SHA-256 hashes of the Host and Client relay tokens. Reque
 
 ```bash
 npm install
-npm run typecheck
+npm run check   # typecheck and Cloudflare Workers-runtime Vitest
 npm run dev
 ```
+
+Tests live in small `test/*.test.ts` files. See [test setup](docs/testing.md).
 
 ## Deploy
 
