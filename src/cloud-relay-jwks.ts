@@ -11,6 +11,8 @@ import {
 
 const ED25519_JWK_X_PATTERN = /^[A-Za-z0-9_-]{43}$/u;
 const JWK_FIELDS = ["alg", "crv", "kid", "kty", "use", "x"] as const;
+const DEFAULT_JWKS_REQUEST_TIMEOUT_MS = 5_000;
+const MAX_JWKS_REQUEST_TIMEOUT_MS = 10_000;
 
 type TrustedKey = Readonly<{
   publicKey: CryptoKey;
@@ -26,6 +28,7 @@ export type CloudRelayJwksCacheOptions = {
   fetchImpl?: typeof fetch;
   now?: () => number;
   maxAgeSeconds?: number;
+  requestTimeoutMs?: number;
 };
 
 export type CloudRelayJwksCache = Readonly<{
@@ -72,6 +75,16 @@ const validateMaxAge = (value: number) => {
     cloudRelayTicketError(
       "INVALID_VERIFIER_CONFIG",
       `JWKS max age must be an integer between 1 and ${CLOUD_AUTH_JWKS_CACHE_SECONDS} seconds`,
+    );
+  }
+  return value;
+};
+
+const validateRequestTimeout = (value: number) => {
+  if (!Number.isInteger(value) || value < 1 || value > MAX_JWKS_REQUEST_TIMEOUT_MS) {
+    cloudRelayTicketError(
+      "INVALID_VERIFIER_CONFIG",
+      `JWKS request timeout must be between 1 and ${MAX_JWKS_REQUEST_TIMEOUT_MS} ms`,
     );
   }
   return value;
@@ -174,6 +187,9 @@ export function createCloudRelayJwksCache(
     options.maxAgeSeconds ?? CLOUD_AUTH_JWKS_CACHE_SECONDS,
   );
   const maxAgeMs = maxAgeSeconds * 1000;
+  const requestTimeoutMs = validateRequestTimeout(
+    options.requestTimeoutMs ?? DEFAULT_JWKS_REQUEST_TIMEOUT_MS,
+  );
   const fetchImpl = options.fetchImpl ?? fetch;
   const now = options.now ?? Date.now;
 
@@ -189,39 +205,51 @@ export function createCloudRelayJwksCache(
   };
 
   const refresh = async (): Promise<JwksSnapshot> => {
-    let response: Response;
-    try {
-      response = await fetchImpl(jwksUrl, {
+    const controller = new AbortController();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    // A single deadline covers both the HTTP response and the streamed body.
+    // Race in addition to aborting, so an uncooperative upstream cannot hold
+    // all concurrent verifier calls indefinitely.
+    const deadline = new Promise<never>((_resolve, reject) => {
+      timer = setTimeout(() => {
+        controller.abort();
+        reject(new Error("JWKS request deadline exceeded"));
+      }, requestTimeoutMs);
+    });
+
+    const load = async (): Promise<JwksSnapshot> => {
+      const response = await fetchImpl(jwksUrl, {
         method: "GET",
         headers: { accept: "application/jwk-set+json, application/json" },
-        redirect: "error",
+        // Workers does not support redirect: "error". Manual mode + !ok
+        // rejects redirects without following their Location.
+        redirect: "manual",
         cache: "no-store",
+        signal: controller.signal,
       });
-    } catch {
-      cloudRelayTicketError("JWKS_UNAVAILABLE", "Trusted Cloud Auth JWKS is unavailable");
-    }
+      if (!response.ok) {
+        cloudRelayTicketError("JWKS_UNAVAILABLE", "Trusted Cloud Auth JWKS is unavailable");
+      }
 
-    if (!response.ok) {
-      cloudRelayTicketError("JWKS_UNAVAILABLE", "Trusted Cloud Auth JWKS is unavailable");
-    }
+      const body = await readBoundedBody(response);
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(body) as unknown;
+      } catch {
+        cloudRelayTicketError("JWKS_INVALID", "Trusted Cloud Auth JWKS is not valid JSON");
+      }
+      const keys = await parseTrustedKeys(parsed);
+      return { keys, fetchedAtMs: readNow() };
+    };
 
-    let body: string;
     try {
-      body = await readBoundedBody(response);
+      return await Promise.race([load(), deadline]);
     } catch (error) {
       if (error instanceof CloudRelayTicketVerificationError) throw error;
       cloudRelayTicketError("JWKS_UNAVAILABLE", "Trusted Cloud Auth JWKS is unavailable");
+    } finally {
+      if (timer !== undefined) clearTimeout(timer);
     }
-
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(body) as unknown;
-    } catch {
-      cloudRelayTicketError("JWKS_INVALID", "Trusted Cloud Auth JWKS is not valid JSON");
-    }
-
-    const keys = await parseTrustedKeys(parsed);
-    return { keys, fetchedAtMs: readNow() };
   };
 
   const currentSnapshot = async () => {
