@@ -62,15 +62,17 @@ The room persists only SHA-256 hashes of the Host and Client relay tokens. Reque
 ## Development
 
 ```bash
-npm install
-npm run typecheck
+npm install --legacy-peer-deps  # npm 10 Arborist peer-tree workaround
+npm run check   # typecheck and Cloudflare Workers-runtime Vitest
 npm run dev
 ```
+
+Tests live in small `test/*.test.ts` files. See [test setup](docs/testing.md).
 
 ## Deploy
 
 ```bash
-npm install
+npm install --legacy-peer-deps  # npm 10 Arborist peer-tree workaround
 npm run deploy
 ```
 
