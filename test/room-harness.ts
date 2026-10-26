@@ -191,8 +191,10 @@ export async function activeRequestIds(relay: string, role: "host" | "client") {
 }
 
 export async function closeAllPeers() {
+  // Workerd's client-side close event isn't guaranteed for locally closed
+  // WebSocketPairs in the shared-storage test runtime. Keep cleanup bounded:
+  // close owned peers; don't claim the DO close handler has fully drained.
   const closing = [...peers];
   peers.clear();
   for (const peer of closing) peer.close(1000, "test cleanup");
-  await Promise.all(closing.map((peer) => peer.expectClose()));
 }
