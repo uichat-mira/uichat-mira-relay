@@ -16,7 +16,7 @@ import {
   KEY_ID,
   NEXT_KEY_ID,
   ROOM,
-  UPSTREAM_RELAY_CLAIMS_FIXTURE,
+  MIRRORED_CLOUD_AUTH_CLAIMS_FIXTURE,
   createSigningFixture,
   encodeSegment,
   jwks,
@@ -78,7 +78,7 @@ function createTestVerifier(
     fetchImpl: async (input, init) => {
       calls += 1;
       expect(String(input)).toBe(JWKS_URL);
-      expect(init?.redirect).toBe("error");
+      expect(init?.redirect).toBe("manual");
       expect(init?.cache).toBe("no-store");
       return new Response(JSON.stringify(jwks(keys)), {
         status: 200,
@@ -91,8 +91,8 @@ function createTestVerifier(
 }
 
 describe("Cloud Relay ticket verification", () => {
-  it("returns only the verified transport identity for an authentic upstream ticket", async () => {
-    expect(UPSTREAM_RELAY_CLAIMS_FIXTURE).toEqual({
+  it("returns only the verified transport identity for a locally signed canonical ticket", async () => {
+    expect(MIRRORED_CLOUD_AUTH_CLAIMS_FIXTURE).toEqual({
       iss: "mira:cloud-auth",
       sub: ACCOUNT_ID,
       device_id: DEVICE_ID,
