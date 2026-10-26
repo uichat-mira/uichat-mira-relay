@@ -118,6 +118,26 @@ async function issue(auth, session, room, role, expectedStatus = 200) {
   return result.body.token;
 }
 
+
+async function issueShiyan(auth, session) {
+  const result = await requestJson(auth + "/v1/service-credentials", {
+    method: "POST",
+    headers: {
+      authorization: "Bearer " + session,
+      "content-type": "application/json",
+      accept: "application/json",
+    },
+    body: JSON.stringify({ audience: "mira:cloud-shiyan" }),
+  });
+  assert.equal(result.status, 200, "Shiyan credential issuance failed");
+  assert.equal(result.body?.audience, "mira:cloud-shiyan");
+  return result.body?.token;
+}
+
+function otherRoom(room) {
+  return room.slice(0, -1) + (room.endsWith("A") ? "B" : "A");
+}
+
 function peer(url) {
   const socket = new WebSocket(url);
   const queued = [];
@@ -197,7 +217,7 @@ async function run() {
     console.log("Real Cloud Auth issuer: valid signed Host/Client tickets verified");
     await issue(cfg.auth, process.env.REL005_FOREIGN_SESSION, cfg.room, "client", 403);
     await issue(cfg.auth, process.env.REL005_CLIENT_SESSION, cfg.room, "host", 403);
-    await issue(cfg.auth, process.env.REL005_CLIENT_SESSION, cfg.room + "_wrong", "client", 403);
+    await issue(cfg.auth, process.env.REL005_CLIENT_SESSION, otherRoom(cfg.room), "client", 403);
     console.log("Issuance authorization: foreign account, mobile-as-host, wrong room denied");
     const host = await connect(cfg.relay, cfg.room, "host", hostToken);
     sockets.push(host); await acknowledged(host, "host", cfg.room);
@@ -205,9 +225,14 @@ async function run() {
     sockets.push(client); await acknowledged(client, "client", cfg.room);
     const crossRole = await connect(cfg.relay, cfg.room, "host", clientToken);
     sockets.push(crossRole); await rejected(crossRole);
-    const crossRoom = await connect(cfg.relay, cfg.room + "_wrong", "client", clientToken);
+    const crossRoom = await connect(cfg.relay, otherRoom(cfg.room), "client", clientToken);
     sockets.push(crossRoom); await rejected(crossRoom);
-    console.log("Real Worker/DO WebSocket: Host/Client ack, wrong role/room deny");
+    const shiyan = await issueShiyan(cfg.auth, process.env.REL005_CLIENT_SESSION);
+    const crossAudience = await connect(cfg.relay, cfg.room, "client", shiyan);
+    sockets.push(crossAudience); await rejected(crossAudience);
+    const legacyToken = await connect(cfg.relay, cfg.room, "client", "c".repeat(48));
+    sockets.push(legacyToken); await rejected(legacyToken);
+    console.log("Real Worker/DO WebSocket: Host/Client ack; room/role/audience/Legacy token denied");
     client.send({ type: "request", requestId: "rel005-forward", path: "/remote/v1/manifest" });
     const forwarded = await host.next();
     assert.equal(forwarded.type, "request");
