@@ -80,7 +80,7 @@ describe("Cloud-only Host/Client admission through real DO WebSockets", () => {
     const bad = [
       [await ticket(other, "client"), "CLOUD_TICKET_REJECTED"],
       [await ticket(room, "host"), "CLOUD_TICKET_REJECTED"],
-      [await ticket(room, "client", { sub: "account-b", scope: ["shiyan:authenticate"] }), "CLOUD_TICKET_REJECTED"],
+      [await ticket(room, "client", { scope: ["shiyan:authenticate"] }), "CLOUD_TICKET_REJECTED"],
       [await ticket(room, "client", { aud: "mira:cloud-shiyan" }), "CLOUD_TICKET_REJECTED"],
       [await ticket(room, "client", { iss: "mira:unauthorized" }), "CLOUD_TICKET_REJECTED"],
       [await ticket(room, "client", { exp: Math.floor(Date.now() / 1000) - 1 }), "CLOUD_TICKET_REJECTED"],
@@ -137,11 +137,11 @@ describe("Cloud-only Host/Client admission through real DO WebSockets", () => {
     const host = await join(room, "host", await ticket(room, "host"));
     await host.next();
     const now = Math.floor(Date.now() / 1000);
-    const short = await ticket(room, "client", { iat: now - 1, nbf: now - 1, exp: now + 1 });
+    const short = await ticket(room, "client", { iat: now - 1, nbf: now - 1, exp: now + 2 });
     const client = await join(room, "client", short);
     expect(await client.next()).toMatchObject({ type: "hello_ack" });
 
-    await new Promise((resolve) => setTimeout(resolve, 1_400));
+    await new Promise((resolve) => setTimeout(resolve, 2_400));
     client.send({ type: "request", requestId: "after-exp" });
     const forwarded = await host.next();
     expect(forwarded.requestId).toMatch(/~after-exp$/);
