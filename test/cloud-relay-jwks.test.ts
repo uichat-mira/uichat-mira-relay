@@ -60,7 +60,9 @@ function createCountingFetch(getBody: () => unknown, status = 200) {
     calls += 1;
     expect(String(input)).toBe(JWKS_URL);
     expect(init?.method).toBe("GET");
-    expect(init?.redirect).toBe("error");
+    expect(init?.redirect).toBe("manual");
+    // Construct a genuine Workerd Request instead of trusting the fake fetch.
+    expect(new Request(String(input), init).redirect).toBe("manual");
     expect(init?.cache).toBe("no-store");
     return jwksResponse(getBody(), status);
   };
@@ -82,6 +84,80 @@ describe("Trusted Cloud Auth JWKS cache", () => {
       expect(() =>
         createCloudRelayJwksCache({ jwksUrl: JWKS_URL, maxAgeSeconds }),
       ).toThrow(CloudRelayTicketVerificationError);
+    }
+  });
+
+  it("uses a Workerd-supported request mode and refuses an HTTP redirect", async () => {
+    // Workerd's native Request constructor rejects redirect: "error".
+    const nativeRequest = new Request(JWKS_URL, {
+      method: "GET",
+      redirect: "manual",
+      cache: "no-store",
+    });
+    expect(nativeRequest.redirect).toBe("manual");
+
+    const cache = createCloudRelayJwksCache({
+      jwksUrl: JWKS_URL,
+      fetchImpl: async (_input, init) => {
+        expect(new Request(JWKS_URL, init).redirect).toBe("manual");
+        return new Response(null, {
+          status: 302,
+          headers: { location: "https://untrusted.example/jwks.json" },
+        });
+      },
+    });
+    await expectCacheError(() => cache.getKey(KEY_ID), "JWKS_UNAVAILABLE");
+  });
+
+  it("fails closed and releases in-flight waiters when JWKS headers never arrive", async () => {
+    let aborted = false;
+    let mode: "hang" | "ok" = "hang";
+    const cache = createCloudRelayJwksCache({
+      jwksUrl: JWKS_URL,
+      requestTimeoutMs: 30,
+      fetchImpl: async (_input, init) => {
+        if (mode === "ok") {
+          return jwksResponse(jwks([{ kid: KEY_ID, jwk: active.publicJwk }]));
+        }
+        init?.signal?.addEventListener("abort", () => { aborted = true; }, { once: true });
+        // The timeout must settle even if a transport ignores AbortSignal.
+        return new Promise<Response>(() => undefined);
+      },
+    });
+    await expectCacheError(() => cache.getKey(KEY_ID), "JWKS_UNAVAILABLE");
+    expect(aborted).toBe(true);
+    mode = "ok";
+    expect(await cache.getKey(KEY_ID)).toBeDefined();
+  });
+
+  it("applies the same deadline while reading a stalled JWKS response body", async () => {
+    let aborted = false;
+    const cache = createCloudRelayJwksCache({
+      jwksUrl: JWKS_URL,
+      requestTimeoutMs: 30,
+      fetchImpl: async (_input, init) => {
+        init?.signal?.addEventListener("abort", () => { aborted = true; }, { once: true });
+        return new Response(
+          new ReadableStream<Uint8Array>({
+            start(controller) {
+              controller.enqueue(new TextEncoder().encode('{"keys":['));
+              // Deliberately never finish the response body.
+            },
+          }),
+          { status: 200 },
+        );
+      },
+    });
+    await expectCacheError(() => cache.getKey(KEY_ID), "JWKS_UNAVAILABLE");
+    expect(aborted).toBe(true);
+  });
+
+  it("rejects invalid request timeout configuration without fetching", () => {
+    for (const requestTimeoutMs of [0, -1, 10_001, 1.5, Number.NaN]) {
+      expect(() => createCloudRelayJwksCache({
+        jwksUrl: JWKS_URL,
+        requestTimeoutMs,
+      })).toThrow(CloudRelayTicketVerificationError);
     }
   });
 
