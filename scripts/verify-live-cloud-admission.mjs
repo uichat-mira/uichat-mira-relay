@@ -96,6 +96,20 @@ function verifyTicket(token, keys, expected) {
   return claims;
 }
 
+function verifiedShiyanClaims(token, keys) {
+  const parts = token?.split(".") || [];
+  assert.equal(parts.length, 3, "Shiyan issuer did not provide compact JWS");
+  const header = JSON.parse(Buffer.from(parts[0], "base64url").toString("utf8"));
+  const payload = JSON.parse(Buffer.from(parts[1], "base64url").toString("utf8"));
+  assert(header.alg === "EdDSA" && header.typ === "JWT" && keys.has(header.kid),
+    "unexpected Shiyan signer");
+  assert(verifySignature(null, Buffer.from(parts[0] + "." + parts[1], "ascii"),
+    keys.get(header.kid), Buffer.from(parts[2], "base64url")), "Shiyan signature failed");
+  assert.equal(payload.aud, "mira:cloud-shiyan");
+  assert.equal(payload.iss, "mira:cloud-auth");
+  return payload;
+}
+
 async function issue(auth, session, room, role, expectedStatus = 200) {
   const result = await requestJson(auth + "/v1/service-credentials", {
     method: "POST",
@@ -215,6 +229,10 @@ async function run() {
     assert.equal(hostClaims.sub, clientClaims.sub, "Host and Client must belong to one Cloud account");
     assert.notEqual(hostClaims.device_id, clientClaims.device_id, "different devices required");
     console.log("Real Cloud Auth issuer: valid signed Host/Client tickets verified");
+    const foreignShiyan = await issueShiyan(cfg.auth, process.env.REL005_FOREIGN_SESSION);
+    const foreignClaims = verifiedShiyanClaims(foreignShiyan, publicKeys);
+    assert.notEqual(foreignClaims.sub, hostClaims.sub,
+      "foreign Session must be owned by a genuinely different account");
     await issue(cfg.auth, process.env.REL005_FOREIGN_SESSION, cfg.room, "client", 403);
     await issue(cfg.auth, process.env.REL005_CLIENT_SESSION, cfg.room, "host", 403);
     await issue(cfg.auth, process.env.REL005_CLIENT_SESSION, otherRoom(cfg.room), "client", 403);
