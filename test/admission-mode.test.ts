@@ -19,6 +19,9 @@ describe("Relay deployment admission mode", () => {
       { RELAY_ADMISSION_MODE: "cloud", CLOUD_AUTH_JWKS_URL: "http://cloud-auth.example/.well-known/jwks.json" },
       { RELAY_ADMISSION_MODE: "cloud", CLOUD_AUTH_JWKS_URL: "https://cloud-auth.example/unsafe" },
       { RELAY_ADMISSION_MODE: "cloud", CLOUD_AUTH_JWKS_URL: jwks + "?kid=x" },
+      { RELAY_ADMISSION_MODE: "cloud", CLOUD_AUTH_JWKS_URL: "https://user@cloud-auth.example/.well-known/jwks.json" },
+      { RELAY_ADMISSION_MODE: "cloud", CLOUD_AUTH_JWKS_URL: "https://:pw@cloud-auth.example/.well-known/jwks.json" },
+      { RELAY_ADMISSION_MODE: "cloud", CLOUD_AUTH_JWKS_URL: jwks + "#fragment" },
     ]) {
       expect(resolveAdmissionMode(config)).toBeNull();
     }
