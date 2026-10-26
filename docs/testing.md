@@ -18,6 +18,9 @@ Repository modules are small by responsibility:
 - `src/room-sockets.ts`: socket selection, cleanup and pending-request release
 - `src/room-state.ts`: attachment serialization and safe frame send
 - `src/protocol.ts`: bounded frame, room, token and request-ID parsing
+- `src/cloud-relay-ticket.ts`: canonical Cloud Relay ticket literals and errors
+- `src/cloud-relay-jwks.ts`: bounded trusted Cloud Auth JWKS fetch and cache
+- `src/cloud-relay-verifier.ts`: isolated Cloud Relay ticket verification
 
 Tests are also independent, intentionally small:
 
@@ -33,6 +36,12 @@ Tests are also independent, intentionally small:
   client requestId ownership and cross-client isolation over real WebSockets
 - `test/room-lifecycle-socket.test.ts`: Host replacement/disconnect and Client
   disconnect active-work cleanup over real WebSockets
+- `test/cloud-relay-verifier.test.ts`: Cloud Relay ticket claims, signature,
+  header and connection-context rejection with ephemeral Ed25519 keys
+- `test/cloud-relay-jwks.test.ts`: trusted JWKS cache bounds, fail-closed
+  behavior, key rotation and token-selected-key rejection
+- `test/cloud-relay-fixtures.ts`: upstream-aligned claim fixtures and ephemeral
+  signing helpers
 
 ## Durable Object WebSocket evidence
 
@@ -62,13 +71,15 @@ Not proved by these tests (deliberate gaps):
 - Durable Object eviction/hibernation recovery and reconnect after eviction
 - behavior against deployed Cloudflare-hosted workerd rather than the local
   Workers Vitest runtime
-- Cloud JWT/JWKS, transport-mode admission and downstream Desktop/Mobile
-  integration (outside this repository's scope)
+- Cloud transport-mode room admission and downstream Desktop/Mobile
+  integration; the isolated Cloud Relay ticket verifier is tested but is not
+  wired into Durable Object admission by these tests
 
 CI **Verify** runs `npm run check` on feature branches and PRs without
 Cloudflare deployment; `dev → test → prod` deployment remains unchanged.
 
-This change preserves the existing self-hosted V1 authentication and routing
-contract; it does **not** add Cloud JWT validation, Cloud room-role admission,
-or evidence from a deployed hosted environment. Those belong to REL-001
-implementation/acceptance after this test foundation.
+The self-hosted V1 authentication and routing contract is preserved. The
+isolated Cloud Relay verifier adds Cloud JWT/JWKS validation but does **not**
+add Cloud room-role admission or evidence from a deployed hosted environment.
+Live socket admission remains on the Legacy V1 path until the admission
+consumer is implemented separately.
