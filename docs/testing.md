@@ -36,6 +36,11 @@ Tests are also independent, intentionally small:
 
 ## Durable Object WebSocket evidence
 
+Cloudflare's Workers Vitest integration requires `--max-workers=1 --no-isolate` for
+Durable Object WebSocket tests; both `npm test` and `npm run test:watch` use
+this supported shared-storage mode. Tests use separate room IDs and await
+peer closure in teardown; this does not prove eviction/hibernation recovery.
+
 The `test/room-*-socket.test.ts` files connect through `exports.default.fetch()`
 with an `Upgrade: websocket` request, so they exercise the Worker route, the
 real `RelayRoom` Durable Object, hibernatable `WebSocketPair` sockets and
