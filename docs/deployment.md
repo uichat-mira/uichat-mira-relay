@@ -73,6 +73,12 @@ configuration**, never from JWT headers or client requests.
   `hello {version:1,type:"hello",role,relayId,token:"<Cloud Relay JWT>"}`;
   **do not** include legacy `clientToken`. V1 `hello_ack` stays unchanged
   after verifying EdDSA, audience, scope, room and role.
+  Cloud Auth OPS-019 is the authority that decides whether an account/device
+  may receive a room/role ticket. Relay validates that signed entitlement,
+  but does not consult Cloud Auth's database per connection or per frame:
+  a synthetically issuer-signed cross-account ticket is **not** a test
+  of the upstream entitlement policy. REL-005 must test actual Cloud Auth
+  refusal to issue such a ticket and real Node-signer interoperability.
 - Internal DO naming in Cloud mode is `cloud:<relayId>`, while Legacy stays
   `<relayId>`. This physically separates connected sockets and stored token
   hashes even when both modes have the same visible room ID.
