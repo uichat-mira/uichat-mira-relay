@@ -82,9 +82,10 @@ configuration**, never from JWT headers or client requests.
 - Internal DO naming in Cloud mode is `cloud:<relayId>`, while Legacy stays
   `<relayId>`. This physically separates connected sockets and stored token
   hashes even when both modes have the same visible room ID.
-- Cloud admission failures return bounded `CLOUD_TICKET_REQUIRED`,
-  `CLOUD_INVALID_HELLO`, `CLOUD_TICKET_REJECTED` or
-  `CLOUD_AUTH_UNAVAILABLE` errors and close with policy code 1008. Expiration
+- Cloud admission failures return bounded `HELLO_REQUIRED`,
+  `CLOUD_INVALID_HELLO`, `CLOUD_LEGACY_PROVISION_FORBIDDEN`,
+  `CLOUD_TICKET_REQUIRED`, `CLOUD_HELLO_PENDING`, `CLOUD_TICKET_REJECTED`
+  or `CLOUD_AUTH_UNAVAILABLE` errors and close with policy code 1008. Expiration
   gates **new/reconnected** WebSockets; an already accepted connection is
   not closed solely on ticket expiry.
 - REL-003's JWKS verifier has a bounded GET/response deadline. Optional
