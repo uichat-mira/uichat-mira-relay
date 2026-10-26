@@ -48,6 +48,28 @@ async function denied(peer: RelayPeer, code: string) {
   expect(peer.received.some((frame) => frame.type === "hello_ack")).toBe(false);
 }
 
+// The test-only service binding holds one real JWKS fetch in the DO runtime.
+const jwksControl = (env as unknown as {
+  RELAY_JWKS_SERVICE: { fetch(input: string, init?: RequestInit): Promise<Response> };
+}).RELAY_JWKS_SERVICE;
+
+async function jwksGate(action: "hold" | "release") {
+  const response = await jwksControl.fetch(
+    `https://auth.test/__test/jwks/${action}`,
+    { method: "POST" },
+  );
+  expect(response.status).toBe(204);
+}
+
+async function untilJwksRequestEntersGate() {
+  for (let attempt = 0; attempt < 100; attempt++) {
+    const response = await jwksControl.fetch("https://auth.test/__test/jwks/status");
+    if (response.ok && (await response.json() as { entered: boolean }).entered) return;
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  throw new Error("JWKS request did not enter the controlled test gate");
+}
+
 describe("Cloud-only Host/Client admission through real DO WebSockets", () => {
   it("admits signed Host and Client without provisioning Legacy SQL and forwards V1 frames", async () => {
     const room = roomId("cloud-forward");
@@ -156,6 +178,39 @@ describe("Cloud-only Host/Client admission through real DO WebSockets", () => {
     const peer = await connect(room);
     peer.send({ type: "request", requestId: "too-early" });
     await denied(peer, "HELLO_REQUIRED");
+  });
+
+  it("rejects business frames arriving during a real, pending Cloud JWKS verification", async () => {
+    const room = roomId("cloud-jwks-race");
+    const host = await join(room, "host", await ticket(room, "host"));
+    expect(await host.next()).toMatchObject({ type: "hello_ack", role: "host" });
+
+    // Simulate a new verifier after DO hibernation while preserving the
+    // already authenticated Host socket; only the test mutates this private cache.
+    const stub = env.RELAY_ROOMS.get(env.RELAY_ROOMS.idFromName(`cloud:${room}`));
+    await runInDurableObject(stub, (instance) => {
+      (instance as unknown as { cloudVerifier: null }).cloudVerifier = null;
+    });
+
+    await jwksGate("hold");
+    try {
+      const client = await connect(room);
+      client.send({
+        type: "hello",
+        role: "client",
+        relayId: room,
+        token: await ticket(room, "client"),
+      });
+      await untilJwksRequestEntersGate();
+      // The first hello is still awaiting the trusted JWKS fetch.
+      expect(client.received).toEqual([]);
+      client.send({ type: "request", requestId: "must-not-forward" });
+      await denied(client, "CLOUD_HELLO_PENDING");
+      await host.expectSilence();
+    } finally {
+      // Releasing the fetch must not make the already-rejected socket authenticated.
+      await jwksGate("release");
+    }
   });
 
   it("replaces a verified Host and releases active Client work without changing routing", async () => {
