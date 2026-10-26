@@ -8,8 +8,8 @@
     "dev": "wrangler dev",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "deploy": "wrangler deploy",
-    "test": "vitest run",
-    "test:watch": "vitest",
+    "test": "vitest run --max-workers=1 --no-isolate",
+    "test:watch": "vitest --max-workers=1 --no-isolate",
     "check": "npm run typecheck && npm run test"
   },
   "devDependencies": {
