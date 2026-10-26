@@ -82,6 +82,7 @@ describe("Cloud-only Host/Client admission through real DO WebSockets", () => {
       [await ticket(room, "host"), "CLOUD_TICKET_REJECTED"],
       [await ticket(room, "client", { sub: "account-b", scope: ["shiyan:authenticate"] }), "CLOUD_TICKET_REJECTED"],
       [await ticket(room, "client", { aud: "mira:cloud-shiyan" }), "CLOUD_TICKET_REJECTED"],
+      [await ticket(room, "client", { iss: "mira:unauthorized" }), "CLOUD_TICKET_REJECTED"],
       [await ticket(room, "client", { exp: Math.floor(Date.now() / 1000) - 1 }), "CLOUD_TICKET_REJECTED"],
       ["c".repeat(48), "CLOUD_TICKET_REJECTED"],
     ] as const;
