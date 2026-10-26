@@ -88,7 +88,18 @@ describe("Legacy Relay V1 forwarding over real Durable Object WebSockets", () =>
     expect(await activeRequestIds(relay, "client")).toEqual([[]]);
 
     client.peer.send({ type: "cancel", requestId: "req_not_active" });
+    // Same-client ordering barrier: the Host must receive the next request
+    // before silence can prove the preceding invalid cancel was not forwarded.
+    client.peer.send({ type: "request", requestId: "req_barrier" });
+    const barrier = await host.peer.next();
+    expect(barrier.type).toBe("request");
+    expect(routedPart(barrier).requestId).toBe("req_barrier");
     await host.peer.expectSilence();
+    host.peer.send({ type: "complete", requestId: barrier.requestId });
+    expect(await client.peer.next()).toMatchObject({
+      type: "complete",
+      requestId: "req_barrier",
+    });
   });
 
   it("does not cross-route foreign or stale host responses to another client", async () => {
