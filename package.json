@@ -16,6 +16,6 @@
     "typescript": "7.0.2",
     "wrangler": "4.114.0",
     "@cloudflare/vitest-plugin": "^1.4.0",
-    "vitest": "^4.1.0"
+    "vitest": "4.1.10"
   }
 }
