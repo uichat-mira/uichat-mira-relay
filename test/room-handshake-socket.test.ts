@@ -81,21 +81,7 @@ describe("Legacy Relay V1 handshake over real Durable Object WebSockets", () => 
     expect(await badClient.next()).toMatchObject({ code: "CLIENT_AUTH_FAILED" });
     expect((await badClient.expectClose()).code).toBe(1008);
 
-    try {
-      badHost.send({ type: "response", requestId: "unknown~bad_req", body: "leak" });
-    } catch {
-      // The rejected socket is already closed.
-    }
-    try {
-      badClient.send({
-        type: "request",
-        requestId: "bad_req",
-        method: "GET",
-        path: "/remote/v1/manifest",
-      });
-    } catch {
-      // The rejected socket is already closed.
-    }
+    // Pre-hello frame forwarding is verified with a live socket in the next test.
     await client.peer.expectSilence();
     await host.peer.expectSilence();
   });
