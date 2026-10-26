@@ -80,6 +80,7 @@ describe("Cloud-only Host/Client admission through real DO WebSockets", () => {
     const bad = [
       [await ticket(other, "client"), "CLOUD_TICKET_REJECTED"],
       [await ticket(room, "host"), "CLOUD_TICKET_REJECTED"],
+      [await ticket(room, "client", { sub: "account-b", scope: ["shiyan:authenticate"] }), "CLOUD_TICKET_REJECTED"],
       [await ticket(room, "client", { aud: "mira:cloud-shiyan" }), "CLOUD_TICKET_REJECTED"],
       [await ticket(room, "client", { exp: Math.floor(Date.now() / 1000) - 1 }), "CLOUD_TICKET_REJECTED"],
       ["c".repeat(48), "CLOUD_TICKET_REJECTED"],
@@ -87,6 +88,9 @@ describe("Cloud-only Host/Client admission through real DO WebSockets", () => {
     for (const [token, code] of bad) {
       await denied(await join(room, "client", token), code);
     }
+    // A signed client ticket cannot be promoted to Host by altering hello.role.
+    await denied(await join(room, "host", await ticket(room, "client")), "CLOUD_TICKET_REJECTED");
+
     const foreign = await ticket(room, "client");
     const parts = foreign.split(".");
     parts[1] = parts[1]!.slice(0, -2) + "AB";
@@ -99,6 +103,32 @@ describe("Cloud-only Host/Client admission through real DO WebSockets", () => {
     const missing = await connect(room);
     missing.send({ type: "hello", role: "client", relayId: room });
     await denied(missing, "CLOUD_TICKET_REQUIRED");
+  });
+
+  it("keeps cancellation scoped to the authenticated Cloud Client connection", async () => {
+    const room = roomId("cloud-cancel");
+    const host = await join(room, "host", await ticket(room, "host"));
+    await host.next();
+    const first = await join(room, "client", await ticket(room, "client"));
+    await first.next();
+    const second = await join(room, "client", await ticket(room, "client"));
+    await second.next();
+
+    first.send({ type: "request", requestId: "same-request-id" });
+    const routedFirst = await host.next();
+    second.send({ type: "request", requestId: "same-request-id" });
+    const routedSecond = await host.next();
+    expect(routedFirst.requestId).not.toEqual(routedSecond.requestId);
+
+    first.send({ type: "cancel", requestId: "same-request-id" });
+    expect(await host.next()).toMatchObject({
+      type: "cancel", requestId: routedFirst.requestId,
+    });
+    host.send({ type: "complete", requestId: routedSecond.requestId });
+    expect(await second.next()).toMatchObject({
+      type: "complete", requestId: "same-request-id",
+    });
+    await first.expectSilence();
   });
 
   it("keeps an admitted connection alive after ticket expiry but revalidates reconnect", async () => {
