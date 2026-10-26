@@ -1,3 +1,6 @@
+import { resolveAdmissionMode } from "./admission-mode.js";
+import { handleCloudHello, type CloudAdmissionPort } from "./cloud-room-admission.js";
+import { createCloudRelayTicketVerifier, type CloudRelayTicketVerifier } from "./cloud-relay-verifier.js";
 import { DurableObject } from "cloudflare:workers";
 import { PROTOCOL_VERSION, RELAY_ID_PATTERN, parseRelayId, isWebSocketUpgrade, parseFrame } from "./protocol.js";
 import { readAttachment, writeAttachment, safeSend } from "./room-state.js";
@@ -7,6 +10,8 @@ import { hostSockets, clientSockets, failAllClientRequests, cleanupSocket, failS
 import { json, type Env } from "./worker.js";
 
 export class RelayRoom extends DurableObject<Env> {
+  private cloudVerifier: CloudRelayTicketVerifier | null = null;
+
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
     this.ctx.storage.sql.exec(`
@@ -25,6 +30,9 @@ export class RelayRoom extends DurableObject<Env> {
     }
     if (!isWebSocketUpgrade(request)) {
       return json({ error: "websocket_required" }, 426);
+    }
+    if (!resolveAdmissionMode(this.env)) {
+      return json({ error: "relay_admission_not_configured" }, 503);
     }
 
     const pair = new WebSocketPair();
@@ -74,8 +82,27 @@ export class RelayRoom extends DurableObject<Env> {
       return;
     }
 
+    const mode = resolveAdmissionMode(this.env);
+    if (!mode) {
+      failSocket(socket, "RELAY_ADMISSION_NOT_CONFIGURED", "Relay admission unavailable");
+      return;
+    }
+    if (attachment.admissionRejected || attachment.admissionPending) {
+      writeAttachment(socket, {
+        ...attachment,
+        admissionPending: false,
+        admissionRejected: true,
+      });
+      failSocket(socket, "CLOUD_HELLO_PENDING", "Cloud admission not complete");
+      return;
+    }
+
     if (!attachment.authenticated) {
-      await handleHello(this.admissionPort(), socket, attachment, frame);
+      if (mode === "cloud") {
+        await handleCloudHello(this.cloudAdmissionPort(), socket, attachment, frame);
+      } else {
+        await handleHello(this.admissionPort(), socket, attachment, frame);
+      }
       return;
     }
 
@@ -142,6 +169,25 @@ export class RelayRoom extends DurableObject<Env> {
       failAllClientRequests: (code, message) =>
         failAllClientRequests(this.ctx, code, message),
       failSocket,
+    };
+  }
+
+  private cloudAdmissionPort(): CloudAdmissionPort {
+    return {
+      ...this.admissionPort(),
+      verifyCloudTicket: (token, expected) => {
+        if (this.cloudVerifier === null) {
+          const service = this.env.RELAY_JWKS_SERVICE;
+          this.cloudVerifier = createCloudRelayTicketVerifier({
+            jwksUrl: this.env.CLOUD_AUTH_JWKS_URL!,
+            ...(service
+              ? { fetchImpl: (input: RequestInfo | URL, init?: RequestInit) =>
+                    service.fetch(String(input), init) }
+              : {}),
+          });
+        }
+        return this.cloudVerifier.verify(token, expected);
+      },
     };
   }
 

@@ -9,6 +9,9 @@ export type RelayAttachment = {
   role?: RelayRole;
   activeRequestIds: string[];
   replaced?: boolean;
+  /** During asynchronous Cloud JWKS verification, reject any second frame. */
+  admissionPending?: boolean;
+  admissionRejected?: boolean;
 };
 
 
@@ -48,6 +51,8 @@ export const readAttachment = (socket: WebSocket): RelayAttachment | null => {
       (item): item is string => typeof item === "string",
     ),
     ...(value.replaced === true ? { replaced: true } : {}),
+    ...(value.admissionPending === true ? { admissionPending: true } : {}),
+    ...(value.admissionRejected === true ? { admissionRejected: true } : {}),
   };
 };
 

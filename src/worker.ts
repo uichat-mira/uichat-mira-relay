@@ -1,5 +1,12 @@
+import { durableRoomKey, resolveAdmissionMode } from "./admission-mode.js";
 import { PROTOCOL_VERSION, RELAY_ID_PATTERN, parseRelayId, isWebSocketUpgrade } from "./protocol.js";
-export type Env = { RELAY_ROOMS: DurableObjectNamespace };
+export type Env = {
+  RELAY_ROOMS: DurableObjectNamespace;
+  RELAY_ADMISSION_MODE?: string;
+  CLOUD_AUTH_JWKS_URL?: string;
+  /** Optional operator-controlled fetch service binding; used by workerd tests. */
+  RELAY_JWKS_SERVICE?: { fetch(input: string, init?: RequestInit): Promise<Response> };
+};
 export const json = (value: unknown, status = 200) =>
   new Response(JSON.stringify(value), {
     status,
@@ -27,7 +34,9 @@ export default {
       return json({ error: "websocket_required" }, 426);
     }
 
-    const id = env.RELAY_ROOMS.idFromName(relayId);
+    const mode = resolveAdmissionMode(env);
+    if (!mode) return json({ error: "relay_admission_not_configured" }, 503);
+    const id = env.RELAY_ROOMS.idFromName(durableRoomKey(relayId, mode));
     return env.RELAY_ROOMS.get(id).fetch(request);
   },
 };
