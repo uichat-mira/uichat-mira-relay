@@ -1,5 +1,6 @@
 // Mirrors uichat-mira/cloud-auth packages/contracts/src/service-credential.ts
-// and docs/service-credentials-v0.md; signing keys are generated per test run.
+// and docs/service-credentials-v0.md. The fixture is locally mirrored, not
+// a token issued by Cloud Auth's Node signer; signing keys are generated per run.
 import {
   CompactSign,
   exportJWK,
@@ -40,7 +41,7 @@ export function relayClaims(
   };
 }
 
-export const UPSTREAM_RELAY_CLAIMS_FIXTURE = relayClaims();
+export const MIRRORED_CLOUD_AUTH_CLAIMS_FIXTURE = relayClaims();
 
 export function ticketHeader(
   overrides: Record<string, unknown> = {},
