@@ -120,14 +120,33 @@ describe("Cloud-only Host/Client admission through real DO WebSockets", () => {
     await denied(await join(room, "client", short), "CLOUD_TICKET_REJECTED");
   });
 
-  it("never authenticates a second request while first Cloud hello is pending", async () => {
-    const room = roomId("cloud-pending");
+  it("never accepts a business frame as the first Cloud socket message", async () => {
+    const room = roomId("cloud-prehello");
     const peer = await connect(room);
-    peer.send({ type: "hello", role: "client", relayId: room, token: await ticket(room, "client") });
     peer.send({ type: "request", requestId: "too-early" });
-    const first = await peer.next();
-    expect(["CLOUD_HELLO_PENDING", "HELLO_REQUIRED"]).toContain(first.code);
-    expect((await peer.expectClose()).code).toBe(1008);
-    expect(peer.received.some((frame) => frame.type === "hello_ack")).toBe(false);
+    await denied(peer, "HELLO_REQUIRED");
+  });
+
+  it("replaces a verified Host and releases active Client work without changing routing", async () => {
+    const room = roomId("cloud-replace");
+    const host = await join(room, "host", await ticket(room, "host"));
+    await host.next();
+    const client = await join(room, "client", await ticket(room, "client"));
+    await client.next();
+    client.send({ type: "request", requestId: "pending-before-replace" });
+    expect((await host.next()).type).toBe("request");
+
+    const newHost = await join(room, "host", await ticket(room, "host"));
+    expect(await newHost.next()).toMatchObject({ type: "hello_ack", role: "host" });
+    expect(await client.next()).toMatchObject({
+      type: "error", requestId: "pending-before-replace", code: "HOST_REPLACED",
+    });
+    expect((await host.expectClose()).code).toBe(1012);
+
+    client.send({ type: "request", requestId: "after-replace" });
+    const forwarded = await newHost.next();
+    expect(forwarded.requestId).toMatch(/~after-replace$/);
+    newHost.send({ type: "complete", requestId: forwarded.requestId });
+    expect(await client.next()).toMatchObject({ type: "complete", requestId: "after-replace" });
   });
 });
