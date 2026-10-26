@@ -191,6 +191,8 @@ export async function activeRequestIds(relay: string, role: "host" | "client") {
 }
 
 export async function closeAllPeers() {
-  for (const peer of peers) peer.close(1000, "test cleanup");
+  const closing = [...peers];
   peers.clear();
+  for (const peer of closing) peer.close(1000, "test cleanup");
+  await Promise.all(closing.map((peer) => peer.expectClose()));
 }
