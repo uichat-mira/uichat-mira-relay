@@ -50,8 +50,12 @@ Clock skew defaults to zero and is limited to 60 seconds.
 The trusted JWKS cache is bounded:
 
 - public HTTPS URL only, with no URL credentials, query or fragment;
-- redirects are rejected and the platform cache is bypassed;
-- fetch uses `GET` and observes at most 64 KiB;
+- fetch uses Workers-supported `redirect: "manual"` and rejects all non-2xx
+  responses, including redirects, without following their `Location`;
+- fetch uses `GET`, bypasses the platform cache and reads at most 64 KiB;
+- a single 5-second default deadline (bounded to 1–10,000 ms in cache configuration)
+  covers both the response headers and streaming response body; timeout aborts
+  the request and fails closed with `JWKS_UNAVAILABLE`;
 - at most 8 public Ed25519 signing keys;
 - each JWK must be `OKP` / `Ed25519` / `sig` / `EdDSA` with a bounded `kid`;
 - a fresh key set is reused for at most 300 seconds;
@@ -84,8 +88,11 @@ npm run check
 
 The verifier tests run in the Cloudflare Workers Vitest runtime so Ed25519
 verification exercises Workerd WebCrypto through `jose`. Tests generate
-ephemeral key pairs and mirror the upstream Cloud Auth claim fixtures; no real
-ticket, private key or deployment secret is committed.
+ephemeral key pairs and **locally mirror** the upstream Cloud Auth claim schema.
+The locally signed fixture is **not** proof of interoperability with a token
+issued by the real Cloud Auth Node signer. That evidence belongs to REL-005
+cross-repository acceptance. No real ticket, private key or deployment secret
+is committed.
 
 Wiring the verified identity into Cloud room admission and any production
 Cloud activation remain separate work items.
