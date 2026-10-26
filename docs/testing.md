@@ -1,17 +1,35 @@
 # Tests and module boundaries
 
-Use Node 22 and run `npm install`, then `npm run check` (TypeScript + Vitest
-inside the Cloudflare Workers runtime). For watch mode use `npm run test:watch`.
+Run on Node 22:
 
-- `src/index.ts`: Worker routing, Durable Object lifecycle and room forwarding.
-- `src/protocol.ts`: existing, unchanged V1 path, frame, token and request-id rules.
-- `test/protocol.test.ts`: pure protocol contracts and malformed inputs.
-- `test/worker.test.ts`: actual workerd Worker entrypoint smoke/rejection checks.
+```bash
+npm install --legacy-peer-deps  # npm 10 peer-tree resolver workaround
+npm run check                 # TypeScript + Vitest in workerd
+npm run test:watch            # optional during development
+```
 
-The Verify GitHub Action runs both checks on PRs **before** deploying any
-environment. Existing deployment branches and routes are unchanged.
+Repository modules are small by responsibility:
 
-This is the test foundation only. It does **not** add Cloud JWT admission,
-WebSocket Host/Client authentication coverage or hosted end-to-end evidence.
-REL-001 adds its runtime/negative tests in later scoped PRs, without growing a
-single monolithic test file.
+- `src/index.ts`: stable Wrangler entrypoint (re-exports only)
+- `src/worker.ts`: HTTP health, routing and Durable Object dispatch
+- `src/room.ts`: Durable Object lifecycle and coordination
+- `src/room-admission.ts`: existing V1 Host / Client token authentication
+- `src/room-forwarding.ts`: request / response and cancellation routing
+- `src/room-sockets.ts`: socket selection, cleanup and pending-request release
+- `src/room-state.ts`: attachment serialization and safe frame send
+- `src/protocol.ts`: bounded frame, room, token and request-ID parsing
+
+Tests are also independent, intentionally small:
+
+- `test/protocol.test.ts`: malformed frames, paths, tokens and routing IDs
+- `test/worker.test.ts`: actual Worker `fetch()` routes in workerd
+- `test/admission.test.ts`: legacy Host / Client auth and negative cases
+- `test/forwarding.test.ts`: request/complete/cancel and foreign-response isolation
+
+CI **Verify** runs `npm run check` on feature branches and PRs without
+Cloudflare deployment; `dev → test → prod` deployment remains unchanged.
+
+This PR preserves the existing self-hosted V1 authentication and routing
+contract; it does **not** add Cloud JWT validation, Cloud room-role admission,
+or full hosted Host/Client WebSocket end-to-end evidence. Those belong to
+REL-001 implementation/acceptance after this test foundation.
