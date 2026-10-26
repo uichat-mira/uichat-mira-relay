@@ -100,6 +100,28 @@ describe("Legacy Relay V1 handshake over real Durable Object WebSockets", () => 
     await host.peer.expectSilence();
   });
 
+  it("rejects business requests sent before hello without forwarding to Host", async () => {
+    const relay = roomId("prehello");
+    const host = await openHost(relay);
+    expect(host.ack).toMatchObject({ type: "hello_ack", role: "host" });
+
+    const unauthenticated = await connect(relay);
+    unauthenticated.send({
+      type: "request",
+      requestId: "req_before_hello",
+      method: "GET",
+      path: "/remote/v1/manifest",
+    });
+
+    expect(await unauthenticated.next()).toMatchObject({
+      type: "error",
+      code: "HELLO_REQUIRED",
+      retryable: false,
+    });
+    expect((await unauthenticated.expectClose()).code).toBe(1008);
+    await host.peer.expectSilence();
+  });
+
   it("rejects malformed and foreign-room frames before forwarding", async () => {
     const relay = roomId("malformed");
     const host = await openHost(relay);
