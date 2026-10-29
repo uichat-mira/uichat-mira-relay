@@ -82,6 +82,8 @@ describe("REL-005 live probe fail-closed configuration", () => {
   it("rejects production, insecure, non-bare and missing inputs without echoing values", async () => {
     const cases: Array<[Record<string, string>, RegExp]> = [
       [{ ...VALID_ENV, REL005_RELAY_ORIGIN: "wss://relay.tomz.io" }, /Legacy production/u],
+      [{ ...VALID_ENV, REL005_RELAY_ORIGIN: "wss://relay.tomz.io." }, /Legacy production/u],
+      [{ ...VALID_ENV, REL005_RELAY_ORIGIN: "wss://RELAY.TOMZ.IO.:443" }, /Legacy production/u],
       [{ ...VALID_ENV, REL005_AUTH_ORIGIN: "http://auth.example.com" }, /bare https:/u],
       [{ ...VALID_ENV, REL005_AUTH_ORIGIN: "https://auth.example.com/api" }, /bare https:/u],
       [{ ...VALID_ENV, REL005_RELAY_ORIGIN: "wss://relay.example.com/?token=x" }, /bare wss:/u],
@@ -151,6 +153,23 @@ describe("REL-005 live probe local ticket verification", () => {
     });
     expect(claims.relay).toEqual({ room: ROOM, role: "host" });
     expect(claims.aud).toBe("mira:cloud-relay-transport");
+  });
+
+  it("rejects signed future-issued and not-yet-valid tickets like the live Relay", async () => {
+    const keys = await trustedKeys();
+    const now = Math.floor(Date.now() / 1000);
+    const cases: Array<[Record<string, number>, RegExp]> = [
+      [{ iat: now + 60, nbf: now + 60, exp: now + 360 }, /issued in the future/u],
+      [{ iat: now - 60, nbf: now + 60, exp: now + 360 }, /not valid yet/u],
+    ];
+    for (const [overrides, message] of cases) {
+      const token = await signTicket(primary.privateKey, currentClaims(overrides));
+      await expectProbeError(
+        () => verifyTicket(token, keys, { room: ROOM, role: "client" }),
+        "TICKET",
+        message,
+      );
+    }
   });
 
   it("denies wrong room, role, audience, expiry, key and Legacy tokens before admission", async () => {

@@ -89,7 +89,9 @@ export function parseProbeConfig(env) {
   if (!isRecord(env)) fail("CONFIG", "probe environment is required");
   const auth = bareOrigin(env, "REL005_AUTH_ORIGIN", "https:");
   const relay = bareOrigin(env, "REL005_RELAY_ORIGIN", "wss:");
-  if (new URL(relay).hostname === "relay.tomz.io") {
+  // DNS root-dot notation is the same production hostname.
+  const relayHost = new URL(relay).hostname.replace(/\.+$/u, "");
+  if (relayHost === "relay.tomz.io") {
     fail("CONFIG", "live probe must not target the Legacy production Relay");
   }
   const room = env.REL005_ROOM;
@@ -252,6 +254,8 @@ export async function verifyTicket(token, keys, expected) {
   if (claims.relay.room !== expected.room) fail("TICKET", "ticket room mismatch");
   if (claims.relay.role !== expected.role) fail("TICKET", "ticket role mismatch");
   const nowSeconds = Math.floor(Date.now() / 1000);
+  if (claims.iat > nowSeconds) fail("TICKET", "ticket was issued in the future");
+  if (claims.nbf > nowSeconds) fail("TICKET", "ticket is not valid yet");
   if (claims.exp <= nowSeconds) fail("TICKET", "ticket has expired");
   if (claims.exp - claims.iat > MAX_TICKET_TTL_SECONDS) {
     fail("TICKET", "ticket lifetime exceeds the Relay transport limit");
