@@ -9,6 +9,7 @@ export default defineConfig({
   ],
   test: {
     include: ["test/**/*.test.ts"],
+    exclude: ["test/cloud-room-socket.test.ts"],
     fileParallelism: false,
   },
 });

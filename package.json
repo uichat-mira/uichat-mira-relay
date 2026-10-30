@@ -8,14 +8,18 @@
     "dev": "wrangler dev",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "deploy": "wrangler deploy",
-    "test": "vitest run",
-    "test:watch": "vitest",
-    "check": "npm run typecheck && npm run test"
+    "test": "vitest run --max-workers=1 --no-isolate && vitest run --config vitest.cloud.config.ts --max-workers=1 --no-isolate",
+    "test:watch": "vitest --max-workers=1 --no-isolate",
+    "check": "npm run typecheck && npm run test && node --check scripts/cloud-probe-contract.mjs && node --check scripts/verify-live-cloud-admission.mjs",
+    "probe:cloud": "node scripts/verify-live-cloud-admission.mjs"
   },
   "devDependencies": {
     "typescript": "7.0.2",
     "wrangler": "4.114.0",
     "@cloudflare/vitest-plugin": "^1.4.0",
     "vitest": "4.1.10"
+  },
+  "dependencies": {
+    "jose": "6.2.13"
   }
 }
