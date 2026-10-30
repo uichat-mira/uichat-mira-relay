@@ -92,6 +92,11 @@ async function authenticateHost(
       }
     }
 
+    admitHost(room, socket, attachment);
+}
+
+/** Same single-Host replacement semantics for Legacy and verified Cloud. */
+export function admitHost(room: AdmissionPort, socket: WebSocket, attachment: RelayAttachment) {
     const existingHosts = room.hostSockets().filter((existing) => existing !== socket);
     if (existingHosts.length) {
       room.failAllClientRequests(
@@ -141,6 +146,11 @@ async function authenticateClient(
       return;
     }
 
+    admitClient(room, socket, attachment);
+}
+
+/** Same Client acknowledgement and request lifecycle for both modes. */
+export function admitClient(room: AdmissionPort, socket: WebSocket, attachment: RelayAttachment) {
     writeAttachment(socket, {
       ...attachment,
       authenticated: true,
