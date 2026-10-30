@@ -75,7 +75,7 @@ jobs:
                 sock.addEventListener("open",()=>sock.send(JSON.stringify({version:1,type:"hello",role:"host",relayId:room,...frame})));
                 sock.addEventListener("message",e=>{try{const f=JSON.parse(e.data);if(f.type==="error")errorCode=f.code;}catch{}});
                 sock.addEventListener("error",()=>finish(new Error(expectedCode+"_SOCKET_ERROR")));
-                sock.addEventListener("close",e=>finish(errorCode===expectedCode&&e.code===1008?null:new Error(expectedCode+"_DENIAL_MISMATCH")));
+                sock.addEventListener("close",e=>finish(errorCode===expectedCode&&e.code===1008?null:new Error(expectedCode+"_DENIAL_MISMATCH_"+(errorCode||"NO_ERROR")+"_CLOSE_"+e.code)));
               });
             }
             await denied({clientToken:"never-accept-legacy"},"CLOUD_LEGACY_PROVISION_FORBIDDEN");
