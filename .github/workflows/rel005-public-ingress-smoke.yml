@@ -1,0 +1,70 @@
+name: REL-005 Read-only Public Ingress Smoke
+
+on:
+  pull_request:
+    branches: [dev]
+    paths:
+      - .github/workflows/rel005-public-ingress-smoke.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  public-ingress:
+    name: JWKS + isolated Cloud Relay admission
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Verify public HTTPS without publishing keys or credentials
+        env:
+          AUTH_ORIGIN: https://cloud-auth.tomzlab.cn
+          RELAY_ORIGIN: https://uichat-mira-relay-cloud-rel005.dangjingtao.workers.dev
+        shell: bash
+        run: |
+          node --input-type=module <<'NODE'
+          import assert from "node:assert/strict";
+          const timeout = 12000;
+          async function jsonGet(origin,path,label){
+            let res;
+            try { res = await fetch(origin + path,{signal:AbortSignal.timeout(timeout),redirect:"manual"}); }
+            catch { throw new Error(label + " HTTPS_UNREACHABLE"); }
+            if(res.status!==200) throw new Error(label + " HTTP_" + res.status);
+            if(!(res.headers.get("content-type")||"").includes("application/json")) throw new Error(label + " NOT_JSON");
+            return res.json().catch(()=>{throw new Error(label + " INVALID_JSON");});
+          }
+          try {
+            const jwks = await jsonGet(process.env.AUTH_ORIGIN,"/.well-known/jwks.json","AUTH_JWKS");
+            assert.ok(Array.isArray(jwks.keys)&&jwks.keys.length>0,"JWKS_KEYS_MISSING");
+            for (const k of jwks.keys) {
+              assert.equal(k.kty,"OKP","JWKS_KTY");
+              assert.equal(k.crv,"Ed25519","JWKS_CRV");
+              assert.equal(k.alg,"EdDSA","JWKS_ALG");
+              assert.ok(typeof k.kid==="string"&&k.kid.length>0,"JWKS_KID");
+              assert.ok(typeof k.x==="string"&&k.x.length>0,"JWKS_X");
+              assert.ok(!("d" in k),"JWKS_PRIVATE");
+            }
+            console.log("PASS: Cloud Auth public JWKS Ed25519 keys=" + jwks.keys.length);
+            const health = await jsonGet(process.env.RELAY_ORIGIN,"/health","RELAY");
+            assert.equal(health.ok,true,"RELAY_HEALTH");
+            assert.equal(health.protocolVersion,1,"RELAY_PROTOCOL");
+            console.log("PASS: isolated Relay /health, protocol=1");
+            const room="room_rel005_readonly_smoke_20261030";
+            const url=process.env.RELAY_ORIGIN.replace(/^https:/,"wss:")+"/v1/relay/"+room+"/socket";
+            await new Promise((resolve,reject)=>{
+              const sock=new WebSocket(url);
+              let errorCode=null,closed=false,done=false;
+              const timer=setTimeout(()=>finish(new Error("CLOUD_NO_TOKEN_TIMEOUT")),timeout);
+              function finish(err){if(done)return;done=true;clearTimeout(timer);if(err){try{sock.close()}catch{ }reject(err);}else resolve();}
+              sock.addEventListener("open",()=>sock.send(JSON.stringify({version:1,type:"hello",role:"host",relayId:room})));
+              sock.addEventListener("message",e=>{try{const f=JSON.parse(e.data);if(f.type==="error")errorCode=f.code;}catch{}});
+              sock.addEventListener("error",()=>finish(new Error("CLOUD_SOCKET_CONNECTION_FAILED")));
+              sock.addEventListener("close",e=>{closed=true;if(errorCode!=="CLOUD_TICKET_REQUIRED"||e.code!==1008) finish(new Error("CLOUD_NO_TOKEN_DENIAL_MISMATCH"));else finish();});
+            });
+            console.log("PASS: isolated Cloud Worker denies missing ticket with 1008/CLOUD_TICKET_REQUIRED");
+          }catch(e){console.error("FAIL: "+(e instanceof Error?e.message:"UNKNOWN"));process.exitCode=1;}
+          NODE
