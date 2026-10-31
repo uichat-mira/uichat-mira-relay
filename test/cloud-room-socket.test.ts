@@ -127,6 +127,63 @@ describe("Cloud-only Host/Client admission through real DO WebSockets", () => {
     expect(JSON.stringify(attachments)).toContain("mobile-a");
   });
 
+  it("keeps two Cloud accounts in separate rooms of the SAME real Worker/DO service", async () => {
+    const roomA = roomId("rel005-tenant-a");
+    const roomB = roomId("rel005-tenant-b");
+    const hostA = await join(roomA, "host", await ticket(roomA, "host", {
+      sub: "account-a", device_id: "desktop-a",
+    }));
+    const hostB = await join(roomB, "host", await ticket(roomB, "host", {
+      sub: "account-b", device_id: "desktop-b",
+    }));
+    expect(await hostA.next()).toMatchObject({ type: "hello_ack", role: "host", relayId: roomA });
+    expect(await hostB.next()).toMatchObject({ type: "hello_ack", role: "host", relayId: roomB });
+
+    const clientA = await join(roomA, "client", await ticket(roomA, "client", {
+      sub: "account-a", device_id: "mobile-a",
+    }));
+    const clientBToken = await ticket(roomB, "client", {
+      sub: "account-b", device_id: "mobile-b",
+    });
+    const clientB = await join(roomB, "client", clientBToken);
+    expect(await clientA.next()).toMatchObject({ type: "hello_ack", role: "client", relayId: roomA });
+    expect(await clientB.next()).toMatchObject({ type: "hello_ack", role: "client", relayId: roomB });
+
+    // Even a valid B ticket cannot be replayed against A's room URL.
+    await denied(await join(roomA, "client", clientBToken), "CLOUD_TICKET_REJECTED");
+
+    // A and B may reuse request ids: each isolated room must forward only to
+    // its own Host with independently verified server-authored provenance.
+    clientA.send({ type: "request", requestId: "same-id", path: "/remote/v1/manifest" });
+    const forwardedA = await hostA.next();
+    expect(forwardedA).toMatchObject({
+      type: "request",
+      relayProvenance: {
+        transport: "cloud", accountId: "account-a", deviceId: "mobile-a",
+        room: roomA, requestId: forwardedA.requestId,
+      },
+    });
+    await hostB.expectSilence();
+
+    clientB.send({ type: "request", requestId: "same-id", path: "/remote/v1/manifest" });
+    const forwardedB = await hostB.next();
+    expect(forwardedB).toMatchObject({
+      type: "request",
+      relayProvenance: {
+        transport: "cloud", accountId: "account-b", deviceId: "mobile-b",
+        room: roomB, requestId: forwardedB.requestId,
+      },
+    });
+    await hostA.expectSilence();
+
+    hostA.send({ type: "complete", requestId: forwardedA.requestId });
+    expect(await clientA.next()).toMatchObject({ type: "complete", requestId: "same-id" });
+    await clientB.expectSilence();
+    hostB.send({ type: "complete", requestId: forwardedB.requestId });
+    expect(await clientB.next()).toMatchObject({ type: "complete", requestId: "same-id" });
+    await clientA.expectSilence();
+  });
+
   it("fails closed for wrong room, role, signature, audience, expiry and Legacy tokens", async () => {
     const room = roomId("cloud-denied");
     const other = roomId("cloud-other");
