@@ -21,6 +21,8 @@ Repository modules are small by responsibility:
 - `src/cloud-relay-ticket.ts`: canonical Cloud Relay ticket literals and errors
 - `src/cloud-relay-jwks.ts`: bounded trusted Cloud Auth JWKS fetch and cache
 - `src/cloud-relay-verifier.ts`: isolated Cloud Relay ticket verification
+- `src/cloud-room-admission.ts`: Cloud-only hello admission using verified tickets
+- `src/cloud-provenance.ts`: server-authored Client provenance for Host frames
 
 Tests are also independent, intentionally small:
 
@@ -40,6 +42,11 @@ Tests are also independent, intentionally small:
   header and connection-context rejection with ephemeral Ed25519 keys
 - `test/cloud-relay-jwks.test.ts`: trusted JWKS cache bounds, fail-closed
   behavior, key rotation and token-selected-key rejection
+- `test/cloud-provenance.test.ts`: Cloud Client provenance authorship, forged
+  identity stripping, missing identity fail-closed, multi-client isolation and
+  Legacy forwarding compatibility
+- `test/cloud-room-socket.test.ts`: real Durable Object Cloud Host/Client
+  admission, forwarding with trusted provenance, denial cases and expiry
 - `test/cloud-relay-fixtures.ts`: upstream-aligned claim fixtures and ephemeral
   signing helpers
 
@@ -63,6 +70,9 @@ Covered evidence:
 - request → response → complete and cancel with connection-qualified routing
 - stale/foreign responses and cross-client response isolation
 - Host replacement, Host disconnect, Client disconnect and active-work cleanup
+- Cloud signed Host/Client hello, denial cases and ticket-expiry behaviour
+- Cloud Client forwarding with server-authored `relayProvenance`, forged
+  identity stripping and per-socket Mobile isolation in real workerd
 
 Not proved by these tests (deliberate gaps):
 
@@ -71,15 +81,12 @@ Not proved by these tests (deliberate gaps):
 - Durable Object eviction/hibernation recovery and reconnect after eviction
 - behavior against deployed Cloudflare-hosted workerd rather than the local
   Workers Vitest runtime
-- Cloud transport-mode room admission and downstream Desktop/Mobile
-  integration; the isolated Cloud Relay ticket verifier is tested but is not
-  wired into Durable Object admission by these tests
+- real Cloud Auth-issued tickets and downstream Desktop/Mobile integration;
+  the locally signed fixtures are not cross-service acceptance evidence
 
 CI **Verify** runs `npm run check` on feature branches and PRs without
 Cloudflare deployment; `dev → test → prod` deployment remains unchanged.
 
-The self-hosted V1 authentication and routing contract is preserved. The
-isolated Cloud Relay verifier adds Cloud JWT/JWKS validation but does **not**
-add Cloud room-role admission or evidence from a deployed hosted environment.
-Live socket admission remains on the Legacy V1 path until the admission
-consumer is implemented separately.
+The self-hosted V1 authentication and routing contract is preserved. Cloud
+admission and provenance are separate from the Legacy token path and provide no
+Host business authorization.

@@ -41,7 +41,10 @@ For Client, only `role` and the JWT change. Cloud `hello` must not send
 `hello_ack` remains the V1 frame with `role`, `relayId` and
 `protocolVersion:1`. Denial is a bounded error and close code 1008.
 A transport ticket **never** grants Desktop business capabilities. Desktop's
-separate Cloud Grant/Gateway checks remain mandatory.
+separate Cloud Grant/Gateway checks remain mandatory. Cloud Client `request`
+and `cancel` frames additionally carry the server-authored `relayProvenance`
+field documented in [cloud-relay-tickets.md](cloud-relay-tickets.md) for
+DSK-007 consumption.
 
 Cloud Auth's server-owned Host room is `room_` plus random base64url bytes:
 it satisfies Relay's stricter URL room regex `[A-Za-z0-9_-]{16,128}`, even

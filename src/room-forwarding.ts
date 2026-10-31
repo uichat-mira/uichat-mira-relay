@@ -1,8 +1,10 @@
 import {
   requestIdFrom, internalRequestId, parseInternalRequestId, type RelayFrame,
 } from "./protocol.js";
+import { buildCloudForwardedFrame } from "./cloud-provenance.js";
 import {
-  readAttachment, writeAttachment, safeSend, type RelayAttachment,
+  isCloudClientIdentity, readAttachment, writeAttachment, safeSend,
+  type CloudClientIdentity, type RelayAttachment,
 } from "./room-state.js";
 import { removeActiveRequest } from "./room-sockets.js";
 
@@ -14,12 +16,46 @@ export type ForwardPort = {
   failSocket(socket: WebSocket, code: string, message: string): void;
 };
 
+/** Cloud-only Client forwarding. Fails closed without verified ticket identity. */
+export function handleCloudClientFrame(
+  room: ForwardPort,
+  socket: WebSocket,
+  attachment: RelayAttachment,
+  frame: RelayFrame,
+) {
+  const identity = attachment.cloudClientIdentity;
+  if (
+    !isCloudClientIdentity(identity) ||
+    attachment.role !== "client" ||
+    identity.room !== attachment.relayId
+  ) {
+    room.failSocket(
+      socket,
+      "CLOUD_CLIENT_IDENTITY_UNAVAILABLE",
+      "Verified Cloud client identity is unavailable",
+    );
+    return;
+  }
+
+  forwardClientFrame(room, socket, attachment, frame, identity);
+}
+
 export function handleClientFrame(
   room: ForwardPort,
     socket: WebSocket,
     attachment: RelayAttachment,
     frame: RelayFrame,
   ) {
+    forwardClientFrame(room, socket, attachment, frame);
+}
+
+function forwardClientFrame(
+  room: ForwardPort,
+  socket: WebSocket,
+  attachment: RelayAttachment,
+  frame: RelayFrame,
+  cloudIdentity?: CloudClientIdentity,
+) {
     if (frame.type !== "request" && frame.type !== "cancel") {
       room.failSocket(
         socket,
@@ -52,13 +88,25 @@ export function handleClientFrame(
       return;
     }
 
+    const forwardedFrame = (clientRequestId: string) => {
+      const routedRequestId = internalRequestId(
+        attachment.connectionId,
+        clientRequestId,
+      );
+      return cloudIdentity
+        ? buildCloudForwardedFrame(
+            frame,
+            cloudIdentity,
+            attachment.connectionId,
+            routedRequestId,
+          )
+        : { ...frame, requestId: routedRequestId };
+    };
+
     if (frame.type === "cancel") {
       if (!attachment.activeRequestIds.includes(requestId)) return;
       removeActiveRequest(socket, attachment, requestId);
-      safeSend(host, {
-        ...frame,
-        requestId: internalRequestId(attachment.connectionId, requestId),
-      });
+      safeSend(host, forwardedFrame(requestId));
       return;
     }
 
@@ -88,10 +136,7 @@ export function handleClientFrame(
       ...attachment,
       activeRequestIds: [...attachment.activeRequestIds, requestId],
     });
-    safeSend(host, {
-      ...frame,
-      requestId: internalRequestId(attachment.connectionId, requestId),
-    });
+    safeSend(host, forwardedFrame(requestId));
 }
 export function handleHostFrame(
   room: ForwardPort,socket: WebSocket, frame: RelayFrame) {
