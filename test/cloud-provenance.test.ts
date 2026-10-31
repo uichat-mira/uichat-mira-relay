@@ -50,7 +50,7 @@ function port(host: ReturnType<typeof socket>, clients: Array<ReturnType<typeof 
 }
 
 describe("Cloud Client provenance forwarding contract", () => {
-  it("authors provenance only from verified identity and strips forged markers", () => {
+  it("authors provenance, strips top-level forgeries, and preserves nested business data", () => {
     const host = socket("host-1", "host");
     const client = socket("client-1", "client", identity("account-a", "mobile-a"));
     const forwarding = port(host, [client]);
@@ -99,14 +99,14 @@ describe("Cloud Client provenance forwarding contract", () => {
         connectionId: "client-1",
         requestId: "client-1~req-1",
       },
-      payload: { keep: "business-value" },
+      payload: { identity: { deviceId: "foreign-mobile" }, caller: "foreign-mobile", keep: "business-value" },
     });
     expect(host.sent[0]).not.toHaveProperty("identity");
     expect(host.sent[0]).not.toHaveProperty("mobileDeviceId");
     expect(host.sent[0]).not.toHaveProperty("deviceId");
     expect(host.sent[0]).not.toHaveProperty("accountId");
-    expect(host.sent[0]).not.toHaveProperty("payload.identity");
-    expect(host.sent[0]).not.toHaveProperty("payload.caller");
+    expect(host.sent[0]).toHaveProperty("payload.identity.deviceId", "foreign-mobile");
+    expect(host.sent[0]).toHaveProperty("payload.caller", "foreign-mobile");
   });
 
   it("fails closed when verified Cloud identity is missing, malformed or for another room", () => {

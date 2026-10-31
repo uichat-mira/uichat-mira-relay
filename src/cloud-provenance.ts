@@ -1,4 +1,3 @@
-import { isRecord } from "./protocol.js";
 import type { CloudClientIdentity } from "./room-state.js";
 
 export const RELAY_PROVENANCE_FIELD = "relayProvenance";
@@ -6,7 +5,8 @@ export const RELAY_PROVENANCE_VERSION = 1;
 
 /**
  * Transport identity metadata that a Cloud Client must never supply itself.
- * Matching keys are removed at any depth before the Host-directed frame is sent.
+ * Only top-level protocol metadata is reserved. Nested objects are business
+ * payload and must survive transport unchanged.
  */
 const RESERVED_IDENTITY_FIELDS = new Set([
   RELAY_PROVENANCE_FIELD,
@@ -31,21 +31,18 @@ export type RelayClientProvenance = Readonly<{
   requestId: string;
 }>;
 
-const stripIdentityMarkers = (value: unknown): unknown => {
-  if (Array.isArray(value)) return value.map(stripIdentityMarkers);
-  if (!isRecord(value)) return value;
-
+const stripClientMetadata = (frame: Record<string, unknown>): Record<string, unknown> => {
   const stripped: Record<string, unknown> = {};
-  for (const [key, child] of Object.entries(value)) {
+  for (const [key, value] of Object.entries(frame)) {
     if (RESERVED_IDENTITY_FIELDS.has(key)) continue;
-    stripped[key] = stripIdentityMarkers(child);
+    stripped[key] = value;
   }
   return stripped;
 };
 
 /**
  * Build the Cloud Host-directed frame from the Client frame. Any Client-supplied
- * identity marker is removed; `relayProvenance` is authored only from the
+ * top-level identity marker is removed; `relayProvenance` is authored only from the
  * verified WebSocket ticket and the rewritten room-scoped request id.
  */
 export function buildCloudForwardedFrame(
@@ -54,7 +51,7 @@ export function buildCloudForwardedFrame(
   connectionId: string,
   requestId: string,
 ): Record<string, unknown> {
-  const stripped = stripIdentityMarkers(frame) as Record<string, unknown>;
+  const stripped = stripClientMetadata(frame);
   const provenance: RelayClientProvenance = Object.freeze({
     version: RELAY_PROVENANCE_VERSION,
     transport: "cloud",

@@ -104,10 +104,10 @@ describe("Cloud-only Host/Client admission through real DO WebSockets", () => {
         role: "client",
         requestId: expect.stringMatching(/~cloud-req$/u),
       },
-      payload: { keep: "business-value" },
+      payload: { deviceId: "foreign-mobile", keep: "business-value" },
     });
     expect(forwarded).not.toHaveProperty("identity");
-    expect(forwarded).not.toHaveProperty("payload.deviceId");
+    expect(forwarded).toHaveProperty("payload.deviceId", "foreign-mobile");
     expect(JSON.stringify(forwarded)).not.toContain(clientToken);
     host.send({ type: "complete", requestId: forwarded.requestId });
     expect(await client.next()).toMatchObject({ type: "complete", requestId: "cloud-req" });
