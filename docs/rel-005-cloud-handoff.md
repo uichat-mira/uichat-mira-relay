@@ -133,7 +133,7 @@ Supply these variables through a trusted local secret-injection mechanism,
 | `REL005_ROOM` | Currently available authoritative Desktop Host room |
 | `REL005_HOST_SESSION` | Active same-room owner Desktop device-bound Session |
 | `REL005_CLIENT_SESSION` | Same-account eligible Mobile device-bound Session |
-| `REL005_FOREIGN_SESSION` | Separate account's eligible Mobile Session |
+| `REL005_FOREIGN_SESSION` | Separate account's eligible Mobile Session; also the second account's Client when the optional two-account gate is enabled |
 
 The script fetches real HTTPS JWKS, uses the public Ed25519 key to verify
 Cloud Auth's **actual issued** Host/Client JWT signatures and context,
@@ -154,6 +154,70 @@ Do **not** interpret a failed public JWKS request, 503 keyring, absent
 Host lease, missing credentials, or Legacy-mode 101 response as success.
 Record only bounded case outcomes, target Worker version, date and testing
 network, **not** identities/credential values.
+
+## Shared-service two-account gate (Option A)
+
+**One public Mira Cloud Relay service is shared by different Cloud Accounts.**
+Each Account owns its own Desktop Host room and may connect only its own
+authorized Mobile device(s). Do not create Worker instances per account, expose
+the official Relay URL or room as user settings, or add cross-account delegation.
+
+The Cloud Auth **issuer** enforces account/device/Host/room/role ownership on
+ticket issuance (OPS-018/019); the Relay **verifier** enforces signature,
+audience, expiry and signed room/role against the socket. A trusted signer
+issuing a maliciously misbound ticket is an upstream issuer policy violation,
+not a business permission that Relay should try to invent on its own.
+Desktop Remote Gateway/Harness separately enforces Host capability scopes.
+
+The `test/cloud-room-socket.test.ts` real-workerd two-account scenario
+exercises concurrent independent Host/Client rooms on **one Worker**, same
+request IDs without cross-room forwarding, server-authored account provenance
+and denial when B attempts to use its valid B-room ticket on A's room URL.
+The test uses synthetic signing keys, so it proves Worker/DO transport
+isolation rather than real Cloud Auth entitlement or deployed runtime parity.
+
+The optional **live, two-account T3** adds only two extra inputs to the
+existing protected `npm run probe:cloud` invocation:
+
+| Variable | Meaning |
+| --- | --- |
+| `REL005_SECOND_ROOM` | Second Cloud Account's active server-issued Desktop Host room, distinct from `REL005_ROOM` |
+| `REL005_SECOND_HOST_SESSION` | Second Account's active device-bound Desktop Host Session, distinct from all other Sessions |
+
+The already-required `REL005_FOREIGN_SESSION` serves as the second
+Account's Mobile Client Session. Either both optional inputs are supplied
+or neither; partial inputs fail before contacting Cloud Auth. When supplied,
+the probe verifies two **valid, account-separated Host+Client ticket pairs**
+against the public JWKS, account B's real room/role issuance, denial of A
+joining B and B joining A, both pairs' authentic Cloud WebSocket hello/ack,
+and same-ID request/complete forwarding with separate server-authored
+account/room provenance on the **same** configured `REL005_RELAY_ORIGIN`.
+When absent, output explicitly says the B→B positive path was **NOT RUN**.
+It does not log real device Sessions, tokens, account IDs or room identifiers.
+
+**Read-only deployment snapshot:** isolated Cloud-only Worker
+`uichat-mira-relay-cloud-rel005` has `RELAY_ADMISSION_MODE=cloud`,
+`CLOUD_AUTH_JWKS_URL` binding, deployment
+`925a02d1-bf73-40e4-ac76-ebf08facf86a` and version
+`fd17d8c1-d03e-4fbc-83e5-c219c2e5382f`.
+Current production `uichat-mira-relay` has no Cloud admission/JWKS
+bindings and remains on Legacy-default deployment
+`d281d89b-36ef-4422-846a-bda1e7997897`.
+No deployment was changed by this source/test work.
+The isolated deployment **predates** the repository's merged
+`relayProvenance` identity-forwarding code; do not assume source parity
+or treat the older Worker as having passed the latest Desktop Grant ingress.
+Version-aligned staging activation needs a separate deployment approval
+and real T3 rerun.
+
+**Recorded real evidence:** REL-005 #9 includes a successful, real
+device-bound Desktop Host ticket + WebSocket `hello_ack` against the isolated
+Cloud-only Worker (`REL005_HOST_T3: PASS`). This proves only the positive
+Host-side admission; the Client, A/B isolation, request/cancel, fresh-ticket
+reconnect and post-expiry outcomes remain unverified on that deployed version.
+The optional two-account live probe also still requires a protected runtime
+with actual eligible Sessions and server-owned Host rooms; no secrets are
+present in this repository or its GitHub Actions runners.
 
 ## Evidence still required for REL-005 acceptance
 
