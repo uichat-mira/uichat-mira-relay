@@ -46,8 +46,9 @@ export async function handleCloudHello(
   // Mark before awaiting JWKS: a concurrent second frame must not be
   // forwarded or allowed to authenticate a socket being rejected.
   writeAttachment(socket, { ...attachment, admissionPending: true });
+  let identity: CloudRelayTicketIdentity;
   try {
-    await port.verifyCloudTicket(frame.token, {
+    identity = await port.verifyCloudTicket(frame.token, {
       room: attachment.relayId,
       role: frame.role,
     });
@@ -61,6 +62,11 @@ export async function handleCloudHello(
     return;
   }
 
+  if (identity.room !== attachment.relayId || identity.role !== frame.role) {
+    reject(port, socket, "CLOUD_TICKET_REJECTED");
+    return;
+  }
+
   const current = readAttachment(socket);
   if (
     current?.admissionPending !== true ||
@@ -70,6 +76,18 @@ export async function handleCloudHello(
   ) return;
 
   const accepted = { ...current, admissionPending: false };
-  if (frame.role === "host") admitHost(port, socket, accepted);
-  else admitClient(port, socket, accepted);
+  if (frame.role === "host") {
+    admitHost(port, socket, accepted);
+    return;
+  }
+
+  admitClient(port, socket, {
+    ...accepted,
+    cloudClientIdentity: {
+      accountId: identity.accountId,
+      deviceId: identity.deviceId,
+      room: identity.room,
+      role: "client",
+    },
+  });
 }

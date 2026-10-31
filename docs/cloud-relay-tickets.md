@@ -45,6 +45,45 @@ Cloud Auth's V0 ticket defaults to a 300 second lifetime and must never exceed
 600 seconds. The verifier accepts the default and rejects a longer lifetime.
 Clock skew defaults to zero and is limited to 60 seconds.
 
+## Cloud Client provenance on Host-directed frames
+
+Cloud admission retains the verifier's `accountId`, `deviceId`, `room` and
+`role` on the authenticated Client socket attachment. It does not retain the
+raw ticket. Cloud Client `request` and `cancel` frames are forwarded to the
+Host with one server-authored, versioned top-level field:
+
+```json
+{
+  "relayProvenance": {
+    "version": 1,
+    "transport": "cloud",
+    "accountId": "<verified ticket sub>",
+    "deviceId": "<verified ticket device_id>",
+    "room": "<verified ticket relay.room>",
+    "role": "client",
+    "connectionId": "<Relay socket connection id>",
+    "requestId": "<rewritten connection-scoped request id>"
+  }
+}
+```
+
+`requestId` is the same rewritten value carried by the forwarded frame, so the
+Host can bind the assertion to the exact request. The values come only from the
+verified WebSocket ticket and the authenticated socket; they are never read
+from the Client frame.
+
+Before adding this field, Relay removes Client-supplied identity markers at any
+depth, including `relayProvenance`, `provenance`, `identity`, `caller`,
+`callerIdentity`, `mobileDeviceId`, `mobileDeviceIdentity`, `accountId` and
+`deviceId`. Business fields under other keys are forwarded unchanged.
+
+Cloud Client forwarding fails closed with
+`CLOUD_CLIENT_IDENTITY_UNAVAILABLE` when verified identity is missing,
+malformed or bound to another room. Legacy Relay V1 forwarding is unchanged and
+never adds `relayProvenance`. `relayProvenance` is transport provenance only:
+it does not grant Host Tool, Remote V1, Browser, Terminal, Agent or Thread
+authority, and Desktop must still enforce its own Cloud Grant/Gateway policy.
+
 ## JWKS cache and rotation
 
 The trusted JWKS cache is bounded:
