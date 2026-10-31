@@ -333,8 +333,12 @@ async function run() {
         }
         host.send({ type: "complete", requestId: forwardedA.requestId });
         bHost.send({ type: "complete", requestId: forwardedB.requestId });
-        if ((await client.next()).requestId !== "rel005-shared" ||
-            (await bClient.next()).requestId !== "rel005-shared") {
+        const completeA = await client.next();
+        const completeB = await bClient.next();
+        if (completeA.type !== "complete" ||
+            completeA.requestId !== "rel005-shared" ||
+            completeB.type !== "complete" ||
+            completeB.requestId !== "rel005-shared") {
           fail("TRANSPORT", "shared service completion isolation differed");
         }
       });
