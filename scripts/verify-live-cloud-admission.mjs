@@ -217,6 +217,35 @@ async function run() {
     await issue(cfg.auth, cfg.sessions.client, otherRoom(cfg.room), "client", 403);
     console.log("Issuance authorization: foreign account, mobile-as-host, wrong room denied");
 
+    // A second valid room on the SAME Relay origin proves multi-tenant use,
+    // rather than treating a foreign-account denial as proof of B->B success.
+    let secondTickets = null;
+    if (cfg.second) {
+      const bHostToken = await issue(
+        cfg.auth, cfg.second.hostSession, cfg.second.room, "host",
+      );
+      const bClientToken = await issue(
+        cfg.auth, cfg.sessions.foreign, cfg.second.room, "client",
+      );
+      const bHostClaims = await verifyTicket(bHostToken, publicKeys, {
+        room: cfg.second.room, role: "host",
+      });
+      const bClientClaims = await verifyTicket(bClientToken, publicKeys, {
+        room: cfg.second.room, role: "client",
+      });
+      if (bHostClaims.sub !== foreignClaims.sub ||
+        bClientClaims.sub !== foreignClaims.sub ||
+        bHostClaims.sub === hostClaims.sub ||
+        bHostClaims.device_id === bClientClaims.device_id) {
+        fail("TICKET", "second account Host/Client identity relation is invalid");
+      }
+      await issue(cfg.auth, cfg.sessions.client, cfg.second.room, "client", 403);
+      secondTickets = { host: bHostToken, client: bClientToken };
+      console.log("Shared service: second account's own Host/Client ticket issuance verified");
+    } else {
+      console.log("Shared service: second-account positive path NOT RUN (optional fixtures absent)");
+    }
+
     const host = await staged("ADMISSION", async () => {
       const socket = await connect(cfg.relay, cfg.room, "host", hostToken);
       sockets.push(socket);
@@ -273,6 +302,44 @@ async function run() {
       }
     });
     console.log("Real Worker/DO transport: forward/complete/cancel verified");
+
+    if (secondTickets && cfg.second) {
+      await staged("TRANSPORT", async () => {
+        const bHost = await connect(cfg.relay, cfg.second.room, "host", secondTickets.host);
+        sockets.push(bHost);
+        await acknowledged(bHost, "host", cfg.second.room);
+        const bClient = await connect(cfg.relay, cfg.second.room, "client", secondTickets.client);
+        sockets.push(bClient);
+        await acknowledged(bClient, "client", cfg.second.room);
+
+        const foreignRoom = await connect(cfg.relay, cfg.room, "client", secondTickets.client);
+        sockets.push(foreignRoom);
+        await rejected(foreignRoom);
+
+        // Request ids may be reused across accounts because each server-owned
+        // room routes and stamps provenance independently.
+        client.send({ type: "request", requestId: "rel005-shared", path: "/remote/v1/manifest" });
+        bClient.send({ type: "request", requestId: "rel005-shared", path: "/remote/v1/manifest" });
+        const forwardedA = await host.next();
+        const forwardedB = await bHost.next();
+        if (forwardedA.type !== "request" || forwardedB.type !== "request" ||
+            forwardedA.relayProvenance?.accountId !== hostClaims.sub ||
+            forwardedA.relayProvenance?.room !== cfg.room ||
+            forwardedB.relayProvenance?.accountId !== foreignClaims.sub ||
+            forwardedB.relayProvenance?.room !== cfg.second.room ||
+            !forwardedA.requestId?.endsWith("~rel005-shared") ||
+            !forwardedB.requestId?.endsWith("~rel005-shared")) {
+          fail("TRANSPORT", "shared service account/room provenance or request routing differed");
+        }
+        host.send({ type: "complete", requestId: forwardedA.requestId });
+        bHost.send({ type: "complete", requestId: forwardedB.requestId });
+        if ((await client.next()).requestId !== "rel005-shared" ||
+            (await bClient.next()).requestId !== "rel005-shared") {
+          fail("TRANSPORT", "shared service completion isolation differed");
+        }
+      });
+      console.log("Shared Cloud Worker/DO: two account rooms, provenance and forwarding PASS");
+    }
 
     if (process.argv.includes("--expiry")) {
       const delayMs = Math.max(0, (clientClaims.exp + 1) * 1000 - Date.now());
