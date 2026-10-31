@@ -197,20 +197,35 @@ account/room provenance on the **same** configured `REL005_RELAY_ORIGIN`.
 When absent, output explicitly says the B→B positive path was **NOT RUN**.
 It does not log real device Sessions, tokens, account IDs or room identifiers.
 
-**Read-only deployment snapshot:** isolated Cloud-only Worker
-`uichat-mira-relay-cloud-rel005` has `RELAY_ADMISSION_MODE=cloud`,
-`CLOUD_AUTH_JWKS_URL` binding, deployment
-`925a02d1-bf73-40e4-ac76-ebf08facf86a` and version
-`fd17d8c1-d03e-4fbc-83e5-c219c2e5382f`.
-Current production `uichat-mira-relay` has no Cloud admission/JWKS
-bindings and remains on Legacy-default deployment
-`d281d89b-36ef-4422-846a-bda1e7997897`.
-No deployment was changed by this source/test work.
-The isolated deployment **predates** the repository's merged
-`relayProvenance` identity-forwarding code; do not assume source parity
-or treat the older Worker as having passed the latest Desktop Grant ingress.
-Version-aligned staging activation needs a separate deployment approval
-and real T3 rerun.
+**Authorized isolated staging deployment completed:** The existing
+`uichat-mira-relay-cloud-rel005` Worker now runs the exact same compiled
+JavaScript module as `uichat-mira-relay-dev` at git `dev`
+`f33129b81583e566f873bae457ba0de5cf2fcd03`. The module equality was
+confirmed by reading both deployed script contents back from Cloudflare;
+the new artifact includes `relayProvenance` identity forwarding. New
+isolated deployment: `aa46bc61-1409-4df2-a04a-1d1e39613040`,
+version: `2d5a3d85-4233-4806-94b1-1b5170f2eb63`, 100% active.
+Only the **Worker script content** was replaced; the `cloud` admission
+setting, trusted Cloud Auth JWKS origin, staging `workers.dev` endpoint and
+independent SQLite DO namespace `a3e37f29f7764bca8257c4299fc29c65`
+were retained. Cloudflare pre- and post-deployment settings were compared.
+
+**Rollback anchor:** former isolated deployment
+`925a02d1-bf73-40e4-ac76-ebf08facf86a`, version
+`fd17d8c1-d03e-4fbc-83e5-c219c2e5382f`. The standalone production
+`uichat-mira-relay` still has only its original DO binding, remains
+Legacy-default, and keeps deployment
+`d281d89b-36ef-4422-846a-bda1e7997897` /
+version `9492eb4a-de81-4273-b964-9994b5b4d93c`.
+No production route, secret, binding or deployment was changed.
+
+**Live public negative-admission evidence on the new isolated version:**
+the rerun of [GitHub Actions #41055657438, attempt 2](https://github.com/uichat-mira/uichat-mira-relay/actions/runs/41055657438)
+succeeded. It checks actual HTTPS JWKS public Ed25519 keys, isolated Worker
+`/health`, real Worker/DO no-token 1008/`CLOUD_TICKET_REQUIRED`, Legacy
+`clientToken` rejection, and JWT forged with an untrusted private key.
+This is a public ingress/negative-admission smoke, **not** signed real
+Host+Client/dual-account positive T3.
 
 **Recorded real evidence:** REL-005 #9 includes a successful, real
 device-bound Desktop Host ticket + WebSocket `hello_ack` against the isolated
@@ -223,10 +238,8 @@ present in this repository or its GitHub Actions runners.
 
 ## Evidence still required for REL-005 acceptance
 
-- [ ] Live Caddy HTTPS JWKS route and real keyring reachable; template PR is
-  **not** itself deployment evidence.
-- [ ] Actual isolated Cloud-mode Worker version, bindings, TLS and rollback
-  verified; existing Legacy prod untouched.
+- [x] Live Caddy HTTPS JWKS route and public Ed25519 keyring reachable from the external GitHub Runner; see #41055657438 attempt 2 (no secret material in logs).
+- [x] Isolated Cloud-mode Worker script version, bindings, TLS public ingress and rollback anchor verified; existing Legacy prod untouched. This does not prove real signed Host+Client admission.
 - [ ] Real issued Host and Client credentials accepted at Worker/DO; signed
   wrong-role/room/audience/expired and foreign-account *issuance* denials.
 - [ ] Forward/complete/cancel/Host replacement/reconnect checked on live
