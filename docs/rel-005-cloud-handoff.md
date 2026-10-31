@@ -1,9 +1,11 @@
 # REL-005 — Cloud Auth ↔ Relay staged transport handoff
 
-Status: **implementation/contract preparation**, not a live Cloud admission acceptance.
+Status: **partial live Host-side T3 verified; full Cloud Host+Client / shared-account T3 remains open**.
 Owner: [REL-005 #9](https://github.com/uichat-mira/uichat-mira-relay/issues/9).
-This is the proposed successor to Draft PR #16 (reusing its probe/document
-direction at head `09fdd48`); #16 remains open until the maintainer decides.
+The protected live probe originated in the research of now-closed, unmerged
+Draft PR #16; the supported harness is now on `dev`. This page records the
+separate no-secret public JWKS/negative-admission evidence in Draft PR #20
+and the shared-Worker two-account probe in Draft PR #22.
 Do not use this page to enable Cloud mode in production.
 
 ## What was inspected (2026-10-26)
