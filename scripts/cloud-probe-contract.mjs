@@ -111,7 +111,24 @@ export function parseProbeConfig(env) {
   if (new Set(Object.values(sessions)).size !== 3) {
     fail("CONFIG", "Host, Client and foreign Sessions must be distinct");
   }
-  return { auth, relay, room, sessions };
+  // Optional second Host is needed only for a full A->A / B->B live run.
+  // The existing foreign Mobile Session is B's Client credential.
+  const secondRoom = env.REL005_SECOND_ROOM;
+  const secondHost = env.REL005_SECOND_HOST_SESSION;
+  const wantsSecond = secondRoom !== undefined || secondHost !== undefined;
+  let second = null;
+  if (wantsSecond) {
+    if (typeof secondRoom !== "string" || !ROOM_PATTERN.test(secondRoom) ||
+        secondRoom === room) {
+      fail("CONFIG", "REL005_SECOND_ROOM must be a different valid Host room");
+    }
+    if (typeof secondHost !== "string" || secondHost.length === 0 ||
+        Object.values(sessions).includes(secondHost)) {
+      fail("CONFIG", "REL005_SECOND_HOST_SESSION must be a distinct device Session");
+    }
+    second = { room: secondRoom, hostSession: secondHost };
+  }
+  return { auth, relay, room, sessions, second };
 }
 
 export function errorCode(payload) {
