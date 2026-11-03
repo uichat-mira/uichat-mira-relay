@@ -1,0 +1,31 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "uichat-mira-relay-cloud",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-08-09",
+  "workers_dev": false,
+  "routes": [
+    {
+      "pattern": "cloud-relay.tomz.io",
+      "custom_domain": true
+    }
+  ],
+  "vars": {
+    "RELAY_ADMISSION_MODE": "cloud",
+    "CLOUD_AUTH_JWKS_URL": "https://cloud-auth.tomzlab.cn/.well-known/jwks.json"
+  },
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "RELAY_ROOMS",
+        "class_name": "RelayRoom"
+      }
+    ]
+  },
+  "exports": {
+    "RelayRoom": {
+      "type": "durable-object",
+      "storage": "sqlite"
+    }
+  }
+}

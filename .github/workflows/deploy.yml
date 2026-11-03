@@ -115,12 +115,52 @@ jobs:
           echo "WRANGLER_CONFIG=wrangler.environment.jsonc" >> "$GITHUB_ENV"
           echo "WORKER_NAME=${worker_name}" >> "$GITHUB_ENV"
 
+      - name: Prepare Cloud Relay deployment config
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          case "$GITHUB_REF_NAME" in
+            test)
+              CLOUD_WORKER_NAME="uichat-mira-relay-cloud-rel005" node <<'NODE'
+          const fs = require("node:fs");
+          const config = JSON.parse(fs.readFileSync("wrangler.cloud.jsonc", "utf8"));
+          config.name = process.env.CLOUD_WORKER_NAME;
+          config.workers_dev = true;
+          config.routes = [];
+          fs.writeFileSync(
+            "wrangler.cloud.environment.jsonc",
+            JSON.stringify(config, null, 2) + "\n",
+          );
+          NODE
+              echo "CLOUD_WRANGLER_CONFIG=wrangler.cloud.environment.jsonc" >> "$GITHUB_ENV"
+              echo "CLOUD_RELAY_ORIGIN=https://uichat-mira-relay-cloud-rel005.dangjingtao.workers.dev" >> "$GITHUB_ENV"
+              ;;
+            prod)
+              echo "CLOUD_WRANGLER_CONFIG=wrangler.cloud.jsonc" >> "$GITHUB_ENV"
+              echo "CLOUD_RELAY_ORIGIN=https://cloud-relay.tomz.io" >> "$GITHUB_ENV"
+              ;;
+            *)
+              echo "CLOUD_WRANGLER_CONFIG=" >> "$GITHUB_ENV"
+              ;;
+          esac
       - name: Deploy to Cloudflare
         shell: bash
         run: |
           set -euo pipefail
           npx wrangler deploy -c "$WRANGLER_CONFIG"
 
+      - name: Deploy Cloud-only Relay
+        if: github.ref_name == 'test' || github.ref_name == 'prod'
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx wrangler deploy -c "$CLOUD_WRANGLER_CONFIG"
+
+      - name: Verify Cloud Relay admission mode
+        if: github.ref_name == 'test' || github.ref_name == 'prod'
+        shell: bash
+        run: npm run smoke:cloud
       - name: Verify production health
         if: github.ref_name == 'prod'
         shell: bash
@@ -140,6 +180,10 @@ jobs:
             }
           '
 
+      - name: Show Cloud Relay deployed versions
+        if: github.ref_name == 'test' || github.ref_name == 'prod'
+        shell: bash
+        run: npx wrangler deployments list -c "$CLOUD_WRANGLER_CONFIG"
       - name: Show deployed versions
         shell: bash
         run: npx wrangler deployments list -c "$WRANGLER_CONFIG"
