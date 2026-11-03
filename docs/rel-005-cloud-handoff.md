@@ -1,9 +1,11 @@
 # REL-005 — Cloud Auth ↔ Relay staged transport handoff
 
-Status: **implementation/contract preparation**, not a live Cloud admission acceptance.
+Status: **partial live Host-side T3 verified; full Cloud Host+Client / shared-account T3 remains open**.
 Owner: [REL-005 #9](https://github.com/uichat-mira/uichat-mira-relay/issues/9).
-This is the proposed successor to Draft PR #16 (reusing its probe/document
-direction at head `09fdd48`); #16 remains open until the maintainer decides.
+The protected live probe originated in the research of now-closed, unmerged
+Draft PR #16; the supported harness is now on `dev`. This page records the
+separate no-secret public JWKS/negative-admission evidence in Draft PR #20
+and the shared-Worker two-account probe in Draft PR #22.
 Do not use this page to enable Cloud mode in production.
 
 ## What was inspected (2026-10-26)
@@ -41,7 +43,10 @@ For Client, only `role` and the JWT change. Cloud `hello` must not send
 `hello_ack` remains the V1 frame with `role`, `relayId` and
 `protocolVersion:1`. Denial is a bounded error and close code 1008.
 A transport ticket **never** grants Desktop business capabilities. Desktop's
-separate Cloud Grant/Gateway checks remain mandatory.
+separate Cloud Grant/Gateway checks remain mandatory. Cloud Client `request`
+and `cancel` frames additionally carry the server-authored `relayProvenance`
+field documented in [cloud-relay-tickets.md](cloud-relay-tickets.md) for
+DSK-007 consumption.
 
 Cloud Auth's server-owned Host room is `room_` plus random base64url bytes:
 it satisfies Relay's stricter URL room regex `[A-Za-z0-9_-]{16,128}`, even
@@ -130,7 +135,7 @@ Supply these variables through a trusted local secret-injection mechanism,
 | `REL005_ROOM` | Currently available authoritative Desktop Host room |
 | `REL005_HOST_SESSION` | Active same-room owner Desktop device-bound Session |
 | `REL005_CLIENT_SESSION` | Same-account eligible Mobile device-bound Session |
-| `REL005_FOREIGN_SESSION` | Separate account's eligible Mobile Session |
+| `REL005_FOREIGN_SESSION` | Separate account's eligible Mobile Session; also the second account's Client when the optional two-account gate is enabled |
 
 The script fetches real HTTPS JWKS, uses the public Ed25519 key to verify
 Cloud Auth's **actual issued** Host/Client JWT signatures and context,
@@ -152,12 +157,89 @@ Host lease, missing credentials, or Legacy-mode 101 response as success.
 Record only bounded case outcomes, target Worker version, date and testing
 network, **not** identities/credential values.
 
+## Shared-service two-account gate (Option A)
+
+**One public Mira Cloud Relay service is shared by different Cloud Accounts.**
+Each Account owns its own Desktop Host room and may connect only its own
+authorized Mobile device(s). Do not create Worker instances per account, expose
+the official Relay URL or room as user settings, or add cross-account delegation.
+
+The Cloud Auth **issuer** enforces account/device/Host/room/role ownership on
+ticket issuance (OPS-018/019); the Relay **verifier** enforces signature,
+audience, expiry and signed room/role against the socket. A trusted signer
+issuing a maliciously misbound ticket is an upstream issuer policy violation,
+not a business permission that Relay should try to invent on its own.
+Desktop Remote Gateway/Harness separately enforces Host capability scopes.
+
+The `test/cloud-room-socket.test.ts` real-workerd two-account scenario
+exercises concurrent independent Host/Client rooms on **one Worker**, same
+request IDs without cross-room forwarding, server-authored account provenance
+and denial when B attempts to use its valid B-room ticket on A's room URL.
+The test uses synthetic signing keys, so it proves Worker/DO transport
+isolation rather than real Cloud Auth entitlement or deployed runtime parity.
+
+The optional **live, two-account T3** adds only two extra inputs to the
+existing protected `npm run probe:cloud` invocation:
+
+| Variable | Meaning |
+| --- | --- |
+| `REL005_SECOND_ROOM` | Second Cloud Account's active server-issued Desktop Host room, distinct from `REL005_ROOM` |
+| `REL005_SECOND_HOST_SESSION` | Second Account's active device-bound Desktop Host Session, distinct from all other Sessions |
+
+The already-required `REL005_FOREIGN_SESSION` serves as the second
+Account's Mobile Client Session. Either both optional inputs are supplied
+or neither; partial inputs fail before contacting Cloud Auth. When supplied,
+the probe verifies two **valid, account-separated Host+Client ticket pairs**
+against the public JWKS, account B's real room/role issuance, denial of A
+joining B and B joining A, both pairs' authentic Cloud WebSocket hello/ack,
+and same-ID request/complete forwarding with separate server-authored
+account/room provenance on the **same** configured `REL005_RELAY_ORIGIN`.
+When absent, output explicitly says the B→B positive path was **NOT RUN**.
+It does not log real device Sessions, tokens, account IDs or room identifiers.
+
+**Authorized isolated staging deployment completed:** The existing
+`uichat-mira-relay-cloud-rel005` Worker now runs the exact same compiled
+JavaScript module as `uichat-mira-relay-dev` at git `dev`
+`f33129b81583e566f873bae457ba0de5cf2fcd03`. The module equality was
+confirmed by reading both deployed script contents back from Cloudflare;
+the new artifact includes `relayProvenance` identity forwarding. New
+isolated deployment: `aa46bc61-1409-4df2-a04a-1d1e39613040`,
+version: `2d5a3d85-4233-4806-94b1-1b5170f2eb63`, 100% active.
+Only the **Worker script content** was replaced; the `cloud` admission
+setting, trusted Cloud Auth JWKS origin, staging `workers.dev` endpoint and
+independent SQLite DO namespace `a3e37f29f7764bca8257c4299fc29c65`
+were retained. Cloudflare pre- and post-deployment settings were compared.
+
+**Rollback anchor:** former isolated deployment
+`925a02d1-bf73-40e4-ac76-ebf08facf86a`, version
+`fd17d8c1-d03e-4fbc-83e5-c219c2e5382f`. The standalone production
+`uichat-mira-relay` still has only its original DO binding, remains
+Legacy-default, and keeps deployment
+`d281d89b-36ef-4422-846a-bda1e7997897` /
+version `9492eb4a-de81-4273-b964-9994b5b4d93c`.
+No production route, secret, binding or deployment was changed.
+
+**Live public negative-admission evidence on the new isolated version:**
+the rerun of [GitHub Actions #41055657438, attempt 2](https://github.com/uichat-mira/uichat-mira-relay/actions/runs/41055657438)
+succeeded. It checks actual HTTPS JWKS public Ed25519 keys, isolated Worker
+`/health`, real Worker/DO no-token 1008/`CLOUD_TICKET_REQUIRED`, Legacy
+`clientToken` rejection, and JWT forged with an untrusted private key.
+This is a public ingress/negative-admission smoke, **not** signed real
+Host+Client/dual-account positive T3.
+
+**Recorded real evidence:** REL-005 #9 includes a successful, real
+device-bound Desktop Host ticket + WebSocket `hello_ack` against the isolated
+Cloud-only Worker (`REL005_HOST_T3: PASS`). This proves only the positive
+Host-side admission; the Client, A/B isolation, request/cancel, fresh-ticket
+reconnect and post-expiry outcomes remain unverified on that deployed version.
+The optional two-account live probe also still requires a protected runtime
+with actual eligible Sessions and server-owned Host rooms; no secrets are
+present in this repository or its GitHub Actions runners.
+
 ## Evidence still required for REL-005 acceptance
 
-- [ ] Live Caddy HTTPS JWKS route and real keyring reachable; template PR is
-  **not** itself deployment evidence.
-- [ ] Actual isolated Cloud-mode Worker version, bindings, TLS and rollback
-  verified; existing Legacy prod untouched.
+- [x] Live Caddy HTTPS JWKS route and public Ed25519 keyring reachable from the external GitHub Runner; see #41055657438 attempt 2 (no secret material in logs).
+- [x] Isolated Cloud-mode Worker script version, bindings, TLS public ingress and rollback anchor verified; existing Legacy prod untouched. This does not prove real signed Host+Client admission.
 - [ ] Real issued Host and Client credentials accepted at Worker/DO; signed
   wrong-role/room/audience/expired and foreign-account *issuance* denials.
 - [ ] Forward/complete/cancel/Host replacement/reconnect checked on live
@@ -167,3 +249,18 @@ network, **not** identities/credential values.
 
 Existing REL-003/004 workerd unit/integration fixtures are useful regression
 checks, **not** evidence that any of the boxes above already passed.
+
+## Shared Cloud Relay service deployment
+
+The official Cloud Relay remains **one Mira-operated shared multi-tenant service**. It is not a Worker per account.
+
+The repository now has two deliberately separate Wrangler configurations:
+
+- wrangler.jsonc continues to deploy the existing Legacy service uichat-mira-relay on relay.tomz.io. It has no Cloud admission vars and remains in Legacy mode.
+- wrangler.cloud.jsonc defines the official Cloud-only production Worker uichat-mira-relay-cloud on cloud-relay.tomz.io, with RELAY_ADMISSION_MODE=cloud and the public production Cloud Auth JWKS URL.
+- On the test branch, the deploy workflow derives wrangler.cloud.environment.jsonc from the same Cloud config, changing only the Worker name to the existing uichat-mira-relay-cloud-rel005, enabling its workers.dev endpoint and removing the production custom domain.
+- The Cloud Worker name owns its own RELAY_ROOMS SQLite Durable Object namespace. It does not share the Legacy Worker namespace or another environment's namespace.
+
+The deployment workflow runs npm run smoke:cloud against each deployed Cloud Worker. This is a deliberately negative, non-destructive smoke: it proves the endpoint is in Cloud admission mode by requiring a no-ticket CLOUD_TICKET_REQUIRED denial and close code 1008. It does not prove valid ticket issuance, two-account isolation with real sessions, Desktop Host connectivity, Mobile business requests, or T4.
+
+The production hostname is declared as a Cloudflare Custom Domain; Cloudflare will create its DNS record during deployment. The hostname had no pre-existing DNS record when this configuration was prepared. The existing Legacy production Worker is still redeployed by the repository production workflow; its route, admission mode, binding and namespace remain unchanged, so it stays in Legacy mode while receiving the same backward-compatible source revision. At this revision the production Worker has not yet been deployed; configuration is not runtime evidence. After deployment, record the exact Worker version and post-deploy smoke result. The Cloud Worker can be detached or rolled back independently; the Legacy relay.tomz.io service remains the compatibility anchor.

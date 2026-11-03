@@ -77,14 +77,38 @@ describe("Cloud-only Host/Client admission through real DO WebSockets", () => {
     expect(await host.next()).toMatchObject({
       type: "hello_ack", role: "host", relayId: room, protocolVersion: 1,
     });
-    const client = await join(room, "client", await ticket(room, "client"));
+    const clientToken = await ticket(room, "client");
+    const client = await join(room, "client", clientToken);
     expect(await client.next()).toMatchObject({
       type: "hello_ack", role: "client", hostConnected: true,
     });
-    client.send({ type: "request", requestId: "cloud-req", path: "/remote/v1/manifest" });
+    client.send({
+      type: "request",
+      requestId: "cloud-req",
+      path: "/remote/v1/manifest",
+      relayProvenance: { accountId: "account-b", deviceId: "foreign-mobile" },
+      identity: { deviceId: "foreign-mobile" },
+      payload: { deviceId: "foreign-mobile", keep: "business-value" },
+    });
     const forwarded = await host.next();
-    expect(forwarded.type).toBe("request");
-    expect(forwarded.requestId).toMatch(/~cloud-req$/);
+    expect(forwarded).toMatchObject({
+      type: "request",
+      path: "/remote/v1/manifest",
+      requestId: expect.stringMatching(/~cloud-req$/u),
+      relayProvenance: {
+        version: 1,
+        transport: "cloud",
+        accountId: "account-a",
+        deviceId: "mobile-a",
+        room,
+        role: "client",
+        requestId: expect.stringMatching(/~cloud-req$/u),
+      },
+      payload: { deviceId: "foreign-mobile", keep: "business-value" },
+    });
+    expect(forwarded).not.toHaveProperty("identity");
+    expect(forwarded).toHaveProperty("payload.deviceId", "foreign-mobile");
+    expect(JSON.stringify(forwarded)).not.toContain(clientToken);
     host.send({ type: "complete", requestId: forwarded.requestId });
     expect(await client.next()).toMatchObject({ type: "complete", requestId: "cloud-req" });
 
@@ -94,6 +118,70 @@ describe("Cloud-only Host/Client admission through real DO WebSockets", () => {
       state.storage.sql.exec("SELECT key FROM relay_config").toArray(),
     );
     expect(stored).toEqual([]);
+
+    const attachments = await runInDurableObject(cloudRoom, (_instance, state) =>
+      state.getWebSockets().map((socket) => socket.deserializeAttachment()),
+    );
+    expect(JSON.stringify(attachments)).not.toContain(clientToken);
+    expect(JSON.stringify(attachments)).toContain("account-a");
+    expect(JSON.stringify(attachments)).toContain("mobile-a");
+  });
+
+  it("keeps two Cloud accounts in separate rooms of the SAME real Worker/DO service", async () => {
+    const roomA = roomId("rel005-tenant-a");
+    const roomB = roomId("rel005-tenant-b");
+    const hostA = await join(roomA, "host", await ticket(roomA, "host", {
+      sub: "account-a", device_id: "desktop-a",
+    }));
+    const hostB = await join(roomB, "host", await ticket(roomB, "host", {
+      sub: "account-b", device_id: "desktop-b",
+    }));
+    expect(await hostA.next()).toMatchObject({ type: "hello_ack", role: "host", relayId: roomA });
+    expect(await hostB.next()).toMatchObject({ type: "hello_ack", role: "host", relayId: roomB });
+
+    const clientA = await join(roomA, "client", await ticket(roomA, "client", {
+      sub: "account-a", device_id: "mobile-a",
+    }));
+    const clientBToken = await ticket(roomB, "client", {
+      sub: "account-b", device_id: "mobile-b",
+    });
+    const clientB = await join(roomB, "client", clientBToken);
+    expect(await clientA.next()).toMatchObject({ type: "hello_ack", role: "client", relayId: roomA });
+    expect(await clientB.next()).toMatchObject({ type: "hello_ack", role: "client", relayId: roomB });
+
+    // Even a valid B ticket cannot be replayed against A's room URL.
+    await denied(await join(roomA, "client", clientBToken), "CLOUD_TICKET_REJECTED");
+
+    // A and B may reuse request ids: each isolated room must forward only to
+    // its own Host with independently verified server-authored provenance.
+    clientA.send({ type: "request", requestId: "same-id", path: "/remote/v1/manifest" });
+    const forwardedA = await hostA.next();
+    expect(forwardedA).toMatchObject({
+      type: "request",
+      relayProvenance: {
+        transport: "cloud", accountId: "account-a", deviceId: "mobile-a",
+        room: roomA, requestId: forwardedA.requestId,
+      },
+    });
+    await hostB.expectSilence();
+
+    clientB.send({ type: "request", requestId: "same-id", path: "/remote/v1/manifest" });
+    const forwardedB = await hostB.next();
+    expect(forwardedB).toMatchObject({
+      type: "request",
+      relayProvenance: {
+        transport: "cloud", accountId: "account-b", deviceId: "mobile-b",
+        room: roomB, requestId: forwardedB.requestId,
+      },
+    });
+    await hostA.expectSilence();
+
+    hostA.send({ type: "complete", requestId: forwardedA.requestId });
+    expect(await clientA.next()).toMatchObject({ type: "complete", requestId: "same-id" });
+    await clientB.expectSilence();
+    hostB.send({ type: "complete", requestId: forwardedB.requestId });
+    expect(await clientB.next()).toMatchObject({ type: "complete", requestId: "same-id" });
+    await clientA.expectSilence();
   });
 
   it("fails closed for wrong room, role, signature, audience, expiry and Legacy tokens", async () => {
@@ -132,20 +220,48 @@ describe("Cloud-only Host/Client admission through real DO WebSockets", () => {
     const room = roomId("cloud-cancel");
     const host = await join(room, "host", await ticket(room, "host"));
     await host.next();
-    const first = await join(room, "client", await ticket(room, "client"));
+    const first = await join(
+      room, "client", await ticket(room, "client", { device_id: "mobile-first" }),
+    );
     await first.next();
-    const second = await join(room, "client", await ticket(room, "client"));
+    const second = await join(
+      room, "client", await ticket(room, "client", { device_id: "mobile-second" }),
+    );
     await second.next();
 
-    first.send({ type: "request", requestId: "same-request-id" });
+    first.send({
+      type: "request",
+      requestId: "same-request-id",
+      relayProvenance: { deviceId: "mobile-second" },
+    });
     const routedFirst = await host.next();
-    second.send({ type: "request", requestId: "same-request-id" });
+    second.send({
+      type: "request",
+      requestId: "same-request-id",
+      identity: { deviceId: "mobile-first" },
+    });
     const routedSecond = await host.next();
     expect(routedFirst.requestId).not.toEqual(routedSecond.requestId);
+    expect(routedFirst.relayProvenance).toMatchObject({
+      deviceId: "mobile-first",
+      connectionId: expect.any(String),
+    });
+    expect(routedSecond.relayProvenance).toMatchObject({
+      deviceId: "mobile-second",
+      connectionId: expect.any(String),
+    });
+    expect((routedFirst.relayProvenance as { connectionId: string }).connectionId)
+      .not.toBe((routedSecond.relayProvenance as { connectionId: string }).connectionId);
+    expect(routedSecond).not.toHaveProperty("identity");
 
     first.send({ type: "cancel", requestId: "same-request-id" });
     expect(await host.next()).toMatchObject({
-      type: "cancel", requestId: routedFirst.requestId,
+      type: "cancel",
+      requestId: routedFirst.requestId,
+      relayProvenance: expect.objectContaining({
+        deviceId: "mobile-first",
+        requestId: routedFirst.requestId,
+      }),
     });
     host.send({ type: "complete", requestId: routedSecond.requestId });
     expect(await second.next()).toMatchObject({
