@@ -5,7 +5,7 @@ import { DurableObject } from "cloudflare:workers";
 import { PROTOCOL_VERSION, RELAY_ID_PATTERN, parseRelayId, isWebSocketUpgrade, parseFrame } from "./protocol.js";
 import { readAttachment, writeAttachment, safeSend } from "./room-state.js";
 import { handleHello, type AdmissionPort } from "./room-admission.js";
-import { handleClientFrame, handleHostFrame, type ForwardPort } from "./room-forwarding.js";
+import { handleClientFrame, handleCloudClientFrame, handleHostFrame, type ForwardPort } from "./room-forwarding.js";
 import { hostSockets, clientSockets, failAllClientRequests, cleanupSocket, failSocket } from "./room-sockets.js";
 import { json, type Env } from "./worker.js";
 
@@ -116,7 +116,11 @@ export class RelayRoom extends DurableObject<Env> {
     }
 
     if (attachment.role === "client") {
-      handleClientFrame(this.forwardPort(), socket, attachment, frame);
+      if (mode === "cloud") {
+        handleCloudClientFrame(this.forwardPort(), socket, attachment, frame);
+      } else {
+        handleClientFrame(this.forwardPort(), socket, attachment, frame);
+      }
       return;
     }
 

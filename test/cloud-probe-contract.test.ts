@@ -76,6 +76,7 @@ describe("REL-005 live probe fail-closed configuration", () => {
         client: "client-session",
         foreign: "foreign-session",
       },
+      second: null,
     });
   });
 
@@ -106,6 +107,33 @@ describe("REL-005 live probe fail-closed configuration", () => {
       }
       expect(redactDiagnostic(error)).not.toContain(env.REL005_ROOM);
     }
+  });
+
+  it("accepts a complete B Host fixture sharing the same Relay service, never partial inputs", () => {
+    const twoAccounts = {
+      ...VALID_ENV,
+      REL005_SECOND_ROOM: "room_abcdef0123456789",
+      REL005_SECOND_HOST_SESSION: "other-account-host-session",
+    };
+    expect(parseProbeConfig(twoAccounts).second).toEqual({
+      room: twoAccounts.REL005_SECOND_ROOM,
+      hostSession: twoAccounts.REL005_SECOND_HOST_SESSION,
+    });
+
+    const invalid = [
+      { ...VALID_ENV, REL005_SECOND_ROOM: twoAccounts.REL005_SECOND_ROOM },
+      { ...VALID_ENV, REL005_SECOND_HOST_SESSION: twoAccounts.REL005_SECOND_HOST_SESSION },
+      { ...twoAccounts, REL005_SECOND_ROOM: VALID_ENV.REL005_ROOM },
+      { ...twoAccounts, REL005_SECOND_HOST_SESSION: VALID_ENV.REL005_HOST_SESSION },
+      { ...twoAccounts, REL005_SECOND_HOST_SESSION: VALID_ENV.REL005_FOREIGN_SESSION },
+      { ...twoAccounts, REL005_SECOND_ROOM: "short" },
+    ];
+    for (const candidate of invalid) {
+      expect(() => parseProbeConfig(candidate)).toThrow(ProbeError);
+    }
+    // Absence of the B fixtures is explicit: the probe must say NOT RUN,
+    // not claim that a foreign-account negative proves B's own usable path.
+    expect(parseProbeConfig(VALID_ENV).second).toBeNull();
   });
 
   it("classifies failures without exposing credentials, JWT material or room paths", () => {

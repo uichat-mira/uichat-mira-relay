@@ -1,8 +1,8 @@
 # Cloud Relay ticket verification
 
-This repository contains an isolated verifier for Cloud Auth Relay transport
-tickets. It is not yet wired into Durable Object `hello`, Worker routing or the
-Legacy Relay V1 token path.
+This repository verifies Cloud Auth Relay transport tickets during explicit
+Cloud-only Durable Object admission. This is separate from the Legacy Relay V1
+token path and never authorizes Desktop business requests.
 
 ## Canonical trust
 
@@ -44,6 +44,48 @@ business permissions.
 Cloud Auth's V0 ticket defaults to a 300 second lifetime and must never exceed
 600 seconds. The verifier accepts the default and rejects a longer lifetime.
 Clock skew defaults to zero and is limited to 60 seconds.
+
+## Cloud Client provenance on Host-directed frames
+
+Cloud admission retains the verifier's `accountId`, `deviceId`, `room` and
+`role` on the authenticated Client socket attachment. It does not retain the
+raw ticket. Cloud Client `request` and `cancel` frames are forwarded to the
+Host with one server-authored, versioned top-level field:
+
+```json
+{
+  "relayProvenance": {
+    "version": 1,
+    "transport": "cloud",
+    "accountId": "<verified ticket sub>",
+    "deviceId": "<verified ticket device_id>",
+    "room": "<verified ticket relay.room>",
+    "role": "client",
+    "connectionId": "<Relay socket connection id>",
+    "requestId": "<rewritten connection-scoped request id>"
+  }
+}
+```
+
+`requestId` is the same rewritten value carried by the forwarded frame, so the
+Host can bind the assertion to the exact request. The values come only from the
+verified WebSocket ticket and the authenticated socket; they are never read
+from the Client frame.
+
+Before adding this field, Relay removes Client-supplied **top-level protocol**
+identity markers, including `relayProvenance`, `provenance`, `identity`, `caller`,
+`callerIdentity`, `mobileDeviceId`, `mobileDeviceIdentity`, `accountId` and
+`deviceId`. Nested JSON and encoded request bodies remain unchanged: Relay is
+transport, not an authority to rewrite business data. Desktop must use only the
+server-authored top-level `relayProvenance` for ingress identity; nested values
+or client-supplied headers are never permission evidence.
+
+Cloud Client forwarding fails closed with
+`CLOUD_CLIENT_IDENTITY_UNAVAILABLE` when verified identity is missing,
+malformed or bound to another room. Legacy Relay V1 forwarding is unchanged and
+never adds `relayProvenance`. `relayProvenance` is transport provenance only:
+it does not grant Host Tool, Remote V1, Browser, Terminal, Agent or Thread
+authority, and Desktop must still enforce its own Cloud Grant/Gateway policy.
 
 ## JWKS cache and rotation
 
@@ -94,5 +136,6 @@ issued by the real Cloud Auth Node signer. That evidence belongs to REL-005
 cross-repository acceptance. No real ticket, private key or deployment secret
 is committed.
 
-Wiring the verified identity into Cloud room admission and any production
-Cloud activation remain separate work items.
+Real Cloud Auth issuance interoperability is covered by REL-005 evidence;
+Desktop DSK-007 business enforcement and any production Cloud activation
+remain separate work items.
