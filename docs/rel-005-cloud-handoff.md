@@ -249,3 +249,18 @@ present in this repository or its GitHub Actions runners.
 
 Existing REL-003/004 workerd unit/integration fixtures are useful regression
 checks, **not** evidence that any of the boxes above already passed.
+
+## Shared Cloud Relay service deployment
+
+The official Cloud Relay remains **one Mira-operated shared multi-tenant service**. It is not a Worker per account.
+
+The repository now has two deliberately separate Wrangler configurations:
+
+- wrangler.jsonc continues to deploy the existing Legacy service uichat-mira-relay on relay.tomz.io. It has no Cloud admission vars and remains in Legacy mode.
+- wrangler.cloud.jsonc defines the official Cloud-only production Worker uichat-mira-relay-cloud on cloud-relay.tomz.io, with RELAY_ADMISSION_MODE=cloud and the public production Cloud Auth JWKS URL.
+- On the test branch, the deploy workflow derives wrangler.cloud.environment.jsonc from the same Cloud config, changing only the Worker name to the existing uichat-mira-relay-cloud-rel005, enabling its workers.dev endpoint and removing the production custom domain.
+- The Cloud Worker name owns its own RELAY_ROOMS SQLite Durable Object namespace. It does not share the Legacy Worker namespace or another environment's namespace.
+
+The deployment workflow runs npm run smoke:cloud against each deployed Cloud Worker. This is a deliberately negative, non-destructive smoke: it proves the endpoint is in Cloud admission mode by requiring a no-ticket CLOUD_TICKET_REQUIRED denial and close code 1008. It does not prove valid ticket issuance, two-account isolation with real sessions, Desktop Host connectivity, Mobile business requests, or T4.
+
+The production hostname is declared as a Cloudflare Custom Domain; Cloudflare will create its DNS record during deployment. The hostname had no pre-existing DNS record when this configuration was prepared. At this revision the production Worker has not yet been deployed; configuration is not runtime evidence. After deployment, record the exact Worker version and post-deploy smoke result. The Cloud Worker can be detached or rolled back independently; the Legacy relay.tomz.io service remains the compatibility anchor.
